@@ -94,7 +94,7 @@ ignored_packages = {"package1", "package2"}
 parallel = 4
 ```
 
-### Forge.toml Example
+### reaping.toml Example
 
 ```toml
 name = "ghostctl"
