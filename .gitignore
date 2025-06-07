@@ -1,0 +1,45 @@
+# Ignore compiled files
+/target/
+**/target/
+
+# Ignore Cargo.lock at the workspace root (only bin crates should have it)
+/Cargo.lock
+
+# Ignore backup files
+*.rs.bk
+*.bak
+*~
+
+# Ignore editor/IDE settings
+/.vscode/
+/.idea/
+/*.swp
+*.swo
+*.swn
+*.sublime-project
+*.sublime-workspace
+
+# Ignore OS junk
+.DS_Store
+Thumbs.db
+
+# Ignore test output or logs
+/tests/output/
+*.log
+
+# Ignore binary builds
+**/*.exe
+**/*.out
+**/*.app
+**/*.dSYM
+**/*.a
+**/*.o
+**/*.so
+**/*.dll
+
+# Optional: GitHub Codespaces, JetBrains, or Rust Analyzer metadata
+/.direnv/
+/.envrc
+/.rustup/
+/.rust-analyzer.json
+

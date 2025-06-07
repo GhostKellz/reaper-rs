@@ -1,0 +1,8 @@
+[workspace]
+members = [
+    "reaper-core",
+    "reap",
+    "rmake",
+    "grim"
+]
+

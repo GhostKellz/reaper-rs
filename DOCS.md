@@ -1,7 +1,7 @@
 # 📘 Reap Documentation
 
 > **Reap** is a secure, modular package manager and local build system for Arch Linux, designed to safely install, audit, sandbox, and rollback packages across the AUR, Flatpak, Pacman, and ChaoticAUR ecosystems.
-> It replaces `ghostbrew` with a hardened and extensible CLI-first toolset.
+> It replaces `ghostbrew` and `ghostforge` with a hardened and extensible CLI-first toolset.
 
 ---
 
@@ -10,33 +10,38 @@
 Reap unifies:
 
 * **System package management**
-* **AUR and custom repo support**
+* **AUR and custom Git repo support**
 * **Flatpak integration**
-* **Sandboxed test environments (pre-install)**
+* **Sandboxed testing environments**
 * **PKGBUILD auditing and linting**
 * **Rollback and snapshot support**
 * **TUI-based batch installs**
-* **Developer-focused local build tooling via `rmake`**
+* **Rust-native developer tooling (`rmake`, `grim`)**
 
-Reap is ideal for developers, tinkerers, and IT professionals seeking a hardened Arch ecosystem with repeatable, reversible, and inspectable operations.
+Reap is built for developers, hackers, and sysadmins who demand verifiability, repeatability, and modularity.
 
 ---
 
 ## 🛠 Architecture
 
-### Core Components
+### Core Binaries
 
-* **`reap` CLI** — Main interface (search/install/upgrade/sandbox/test)
-* **`reap tui`** — Interactive fuzzy-powered installer
-* **`rmake`** — Local PKGBUILD builder for projects and repos
-* **Sandbox Daemon** — Ephemeral VM/container to test builds (LXC, nspawn, firejail, or bwrap)
-* **Lua Hooks Engine** — Custom lifecycle logic for install/build/test
+* `reap` — Meta package manager (search/install/upgrade/sandbox/test)
+* `rmake` — PKGBUILD + TOML builder with CI hooks
+* `grim` — Secure Rust package bootstrapper (Cargo++)
 
-### Sources Supported
+### Components
+
+* **TUI** — `reap tui` provides a fuzzy-powered interactive interface
+* **Sandbox Engine** — Ephemeral VMs/containers for isolated testing
+* **Lua Hook Engine** — Lifecycle scripting for custom behavior
+* **Forge Layer** — Optional `reaping.toml` support for modern builds
+
+### Supported Sources
 
 * `pacman`
-* `aur` (via `yay`-style logic)
-* `chaotic-aur` (if enabled)
+* `aur` (via internal or `yay`-style logic)
+* `chaotic-aur` (optional)
 * `flatpak`
 * `custom` (via `reap tap`)
 
@@ -44,108 +49,127 @@ Reap is ideal for developers, tinkerers, and IT professionals seeking a hardened
 
 ## 🔐 Security Features
 
-* **PKGBUILD audit**: Shows diffs before install
-* **GPG verification**: Verifies sources and signatures
-* **Pre-install sandbox**: All packages can be test-installed into an ephemeral environment
-* **Rollback support**: Every install/upgrade creates a fallback snapshot
-* **Dependency graphing**: Full resolution display for transparency
+* 💾 PKGBUILD diff viewer
+* 🔐 GPG key auto-fetch + verification
+* 🧪 Pre-install sandbox testing
+* 🕵️ File/network access tracing
+* 📀 Rollback support via snapshotting
+* 🔍 Dependency graph auditing
 
 ---
 
 ## ⚙️ Configuration
 
-Reap reads config from:
+Reap reads configuration from:
 
 * `~/.config/reap/config.lua`
-* Global defaults in `/etc/reap/`
+* System-wide defaults from `/etc/reap/`
 
-### Example config.lua:
+### Example `config.lua`:
 
 ```lua
 return {
-  prefer = { "pacman", "chaotic-aur", "aur", "flatpak" },
+  prefer = { "pacman", "aur", "flatpak" },
   sandbox = {
     enable = true,
-    backend = "lxc", -- or "bwrap", "nspawn", "firejail"
+    backend = "lxc",
   },
   hooks = {
     pre_install = "lua ./hooks/pre.lua",
-    post_build = "lua ./hooks/post.lua",
+    post_build = "lua ./hooks/post.lua"
   },
   ignored_packages = {
-    "steam",
     "nvidia-beta",
+    "steam"
   }
 }
 ```
 
 ---
 
-## 📦 Local PKGBUILD Projects
+## 📆 Local Projects (`rmake`)
 
-Reap includes `rmake` to simplify working with custom packages:
+Reap includes `rmake` to streamline package development:
 
-* `rmake init` scaffolds a build folder
-* `rmake build` uses `makepkg` and captures logs
-* `rmake release` signs and publishes to Git-based or file-based repos
-* `rmake graph` visualizes complex dependency chains
+* `rmake init` – Scaffold a new package
+* `rmake build` – Build using makepkg-compatible logic
+* `rmake install` – Local install with `pacman -U`
+* `rmake lint` – Check PKGBUILD or reaping.toml
+* `rmake release` – Sign + publish to repo
+* `rmake graph` – Visualize dependencies
 
 ---
 
-## 🧪 Sandbox Modes
+## 🧪 Sandbox Testing
 
-Before installing, `reap` can test a package in a:
+Reap uses secure sandboxes to test packages **before** installation:
 
-* `lxc` container (default if LXC is installed)
-* `systemd-nspawn` container
-* `bubblewrap` rootless sandbox
-* `firejail` (fallback if others unavailable)
+Supported backends:
 
-Useful for catching:
+* `lxc` (default, if available)
+* `systemd-nspawn`
+* `bubblewrap`
+* `firejail`
 
-* Install-time breakage
-* File conflicts
-* Suspicious scripts
-* Networking or filesystem access
+Features:
+
+* Snapshot state
+* File/network tracing
+* Diff against clean root
+* Ephemeral installs
+
+---
+
+## 🧰 Rust Project Support (`grim`)
+
+`grim` is a secure wrapper for managing and deploying Rust projects.
+
+### Key Features
+
+* 🧱 Sandboxed builds + testing
+* 🔐 Audit crates and dependencies
+* 📆 Secure install of Rust binaries (system-wide or user)
+* 🌐 Offline fetch + lockfile verification
+* 🧪 Compatible with Reap’s sandbox engine
+
+### CLI Commands
+
+```bash
+grim build       # Compile crate with checks
+grim install     # Install binary + metadata
+grim test        # Run test suite in sandbox
+grim audit       # Check versions, licenses, vulnerabilities
+grim update      # Update dependencies & lockfile
+grim fetch       # Fetch sources for offline build
+grim shell       # Drop into dev shell with toolchain
+```
+
+---
+
+## 📁 Project Example: `reaping.toml`
+
+```toml
+name = "ghostctl"
+version = "0.3.0"
+author = "GhostKellz"
+license = "MIT"
+build = "cargo build --release"
+install = "install -Dm755 target/release/ghostctl /usr/bin/ghostctl"
+source = "https://github.com/ghostkellz/ghostctl/archive/v0.3.0.tar.gz"
+checksum = "sha256:abcd1234..."
+```
 
 ---
 
 ## 📚 Related Files
 
-| File          | Purpose                            |
-| ------------- | ---------------------------------- |
-| `COMMANDS.md` | CLI reference and keybindings      |
-| `README.md`   | Intro, goals, install instructions |
-| `config.lua`  | Main user configuration file       |
-| `PKGBUILD`    | For building `reap` itself         |
-| `rmake.toml`  | Optional overrides for `rmake`     |
-| `sandbox.log` | Last test install log              |
+* [README.md](./README.md) – Project overview
+* [COMMANDS.md](./COMMANDS.md) – Full CLI reference
+* [forge.toml Spec](https://github.com/ghostkellz/ghostforge/wiki/forge.toml-Spec)
+* [Migrating from makepkg](https://github.com/ghostkellz/ghostforge/wiki/Migrating-from-Makepkg)
+* [CONTRIBUTING.md](./CONTRIBUTING.md)
 
 ---
 
-## 🧠 Philosophy
-
-* **Security-first**: Don’t trust—verify.
-* **Reversible**: Every action should be rollable.
-* **Modular**: All features configurable or replaceable.
-* **Unified UX**: One tool, one UX, all sources.
-* **Scriptable**: Lua hooks power most of the internal automation.
-
----
-
-## 📡 Contributing
-
-Want to improve or fork `reap`? Use `rmake` and clone from:
-
-```bash
-git clone https://github.com/ghostkellz/reap
-cd reap
-rmake build
-```
-
-Contributions welcome via PR, patch, or issue!
-
----
-
-© 2025 — CK Technology LLC • MIT License
+☠️ Built with paranoia by **GhostKellz**
 

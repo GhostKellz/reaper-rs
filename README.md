@@ -1,5 +1,3 @@
-# ☠️ Reaper Package Manager
-
 [![Arch Linux](https://img.shields.io/badge/platform-Arch%20Linux-1793d1?logo=arch-linux\&logoColor=white)](https://archlinux.org)
 [![Made with Rust](https://img.shields.io/badge/made%20with-Rust-000000?logo=rust\&logoColor=white)](https://www.rust-lang.org/)
 [![Status](https://img.shields.io/badge/status-active-success?style=flat-square)](https://github.com/ghostkellz/reaper)
@@ -7,51 +5,60 @@
 ![Built with Clap](https://img.shields.io/badge/built%20with-clap-orange)
 ![License](https://img.shields.io/github/license/ghostkellz/reaper)
 
+# ☠️ Reaper Package Manager
+
 ---
 
-## Overview
+## 📄 Overview
 
-Reaper is a blazing-fast, Rust-powered **meta package management toolkit** for Linux. It's a hybrid of two powerful tools:
+**Reaper** is a blazing-fast, Rust-powered **meta package management toolkit** for Arch Linux. It merges two specialized tools:
 
-* **Ghostbrew**: An AUR helper with TUI, rollback, GPG handling, and Flatpak integration.
-* **GhostForge**: A modern makepkg replacement with TOML config support and CI-friendly features.
+* **Ghostbrew**: A secure AUR helper with rollback, GPG verification, sandboxing, and Flatpak support.
+* **GhostForge**: A modern `makepkg` replacement with TOML config, CI integration, and dependency control.
 
-**Reaper unifies them into a single cross-distro CLI-first toolkit.**
+Now bundled together in one modular CLI toolkit, **Reaper** is designed for paranoid Arch users, power packagers, and automation-first workflows.
 
 ---
 
 ## 🔧 Capabilities
 
-### `reap`: AUR + Meta Package Manager (Ghostbrew module)
+### `reap`: Secure AUR & Meta Package Manager (Ghostbrew)
 
-* Unified search across AUR, Pacman, and Flatpak
-* Interactive TUI search and selection
-* GPG key import & verification
-* Rollback, batch installs
-* Lua-based configuration
-* Flatpak metadata integration
+* Unified search: AUR, Pacman, Flatpak, ChaoticAUR
+* Interactive TUI installer
+* GPG key importing + PKGBUILD auditing
+* Rollback system & multi-package upgrades
+* Flatpak integration with metadata
+* Lua-configurable backend logic
 
-### `rmake`: The Makepkg Replacement (GhostForge module)
+### `rmake`: Makepkg Replacement (GhostForge)
 
-* Drop-in `makepkg` alternative
-* Supports legacy PKGBUILD **and** modern `reaping.toml`
-* Native Rust-based backend with no runtime deps
-* Optional signature verification, hash checking
-* Pluggable build backends (cargo, cmake, just, etc.)
-* CLI audit/lint of PKGBUILD or TOML files
-* Full dependency and hook management system
+* Drop-in alternative to `makepkg`
+* Supports both `PKGBUILD` and `reaping.toml`
+* Fully written in Rust, zero runtime dependencies
+* Hookable lifecycle with custom scripts
+* Reproducible, signed builds
+* Auto-release, packaging, and CI hooks
+
+### `grim`: Rust Crate Manager (Cargo++ Concept)
+
+* Secure wrapper for `cargo` workflows
+* Sandboxed test & install
+* Offline dependency fetch & integrity validation
+* Audit toolchain and dependency graph
+* Integrates directly into Reaper CLI family
 
 ---
 
 ## 📦 Installation
 
-### From Source
+### Build from Source
 
 ```bash
-cargo install --path . # or reaper, depending on workspace layout
+cargo install --path .
 ```
 
-### From AUR (planned)
+### AUR (planned)
 
 ```bash
 yay -S reaper-bin
@@ -61,72 +68,82 @@ yay -S reaper-bin
 
 ## 🚀 Usage
 
-### `reap` CLI
+### AUR & Package Management (reap)
 
 ```bash
-reap search <query>
+reap search <pkg>
 reap install <pkg>
 reap upgrade
 reap rollback <pkg>
-reap tui         # Launch interactive UI
+reap tui
 ```
 
-### `rmake` (PKGBUILD or forge.toml)
+### PKGBUILD Build System (rmake)
 
 ```bash
+rmake init
 rmake build
 rmake install
 rmake lint
-rmake sign
-rmake publish
+rmake release
+```
+
+### Secure Rust Tooling (grim)
+
+```bash
+grim build
+grim install
+grim audit
+grim shell
 ```
 
 ---
 
-## 📁 Configuration
+## 📂 Config Examples
 
-### AUR Helper (Lua)
-
-Path: `~/.config/reaper/brew.lua`
+### `~/.config/reaper/brew.lua`
 
 ```lua
-ignored_packages = {"package1", "package2"}
-parallel = 4
+ignored_packages = {"spotify", "google-chrome"}
+parallel = 8
 ```
 
-### reaping.toml Example
+### `reaping.toml`
 
 ```toml
-name = "ghostctl"
-version = "0.3.0"
-author = "CK Technology LLC"
+name = "phantomdns"
+version = "0.1.0"
+author = "GhostKellz"
 license = "MIT"
+source = "https://github.com/ghostkellz/phantomdns/archive/v0.1.0.tar.gz"
+checksum = "sha256:abc123..."
 build = "cargo build --release"
-install = "install -Dm755 target/release/ghostctl /usr/bin/ghostctl"
-source = "https://github.com/ghostkellz/ghostctl/archive/v0.3.0.tar.gz"
-checksum = "sha256:abcd1234..."
+install = "install -Dm755 target/release/phantomdns /usr/bin/phantomdns"
 ```
 
 ---
 
-## 📚 Docs
+## 📚 Documentation
 
-* Full CLI Reference: `reap --help`, `rmake --help`
-* [forge.toml Specification](https://github.com/ghostkellz/ghostforge/wiki/forge.toml-Spec)
-* Migration Guide: [Switch from `makepkg`](https://github.com/ghostkellz/ghostforge/wiki/Migrating-from-Makepkg)
-* See [`DOCS.md`](DOCS.md) for more
+* [Command Reference](COMMANDS.md)
+* [forge.toml Spec](https://github.com/ghostkellz/ghostforge/wiki/forge.toml-Spec)
+* [Migration from ](https://github.com/ghostkellz/ghostforge/wiki/Migrating-from-Makepkg)[`makepkg`](https://github.com/ghostkellz/ghostforge/wiki/Migrating-from-Makepkg)
+* `reap doctor` – validate your environment
 
 ---
 
-## 🤝 Contributing
+## 😎 Contributing
 
-PRs, issues, and feedback welcome.
-See [`CONTRIBUTING.md`](CONTRIBUTING.md)
+Open to PRs, bugs, ideas, and flames. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for style and module conventions.
 
 ---
 
 ## 📜 License
 
-MIT License © 2025 CK Technology LLC
-See [`LICENSE`](LICENSE) for full details.
+MIT License © 2025 [CK Technology LLC](https://github.com/ghostkellz)
+See [`LICENSE`](LICENSE) for full terms.
+
+---
+
+☠️ Built with paranoia by **GhostKellz**
 
