@@ -51,7 +51,7 @@ impl Manifest {
                     }
                 } else if let Some(fname) = path.file_name().and_then(|n| n.to_str()) {
                     if fname == "forge.toml" {
-                        let data = Manifest::parse_ForgeToml(path.to_str().unwrap());
+                        let data = Manifest::parse_forge_toml(path.to_str().unwrap());
                         return Some(Manifest {
                             manifest_type: ManifestType::ForgeToml,
                             path: path.to_string_lossy().to_string(),
@@ -92,7 +92,7 @@ impl Manifest {
                         data: None, // Will be handled by Lua runtime
                     });
                 } else if path.ends_with("forge.toml") {
-                    let data = Manifest::parse_ForgeToml(path);
+                    let data = Manifest::parse_forge_toml(path);
                     return Some(Manifest {
                         manifest_type: ManifestType::ForgeToml,
                         path: path.to_string(),
@@ -126,7 +126,7 @@ impl Manifest {
         }
     }
 
-    pub fn parse_ForgeToml(path: &str) -> Option<ManifestData> {
+    pub fn parse_forge_toml(path: &str) -> Option<ManifestData> {
         let content = fs::read_to_string(path).ok()?;
         let value: toml::Value = toml::from_str(&content).ok()?;
         Some(ManifestData {
@@ -208,3 +208,4 @@ fn extract_array(content: &str, var: &str) -> Option<Vec<String>> {
         .collect();
     if vals.is_empty() { None } else { Some(vals) }
 }
+
