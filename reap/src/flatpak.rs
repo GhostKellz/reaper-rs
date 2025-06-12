@@ -37,11 +37,13 @@ pub fn print_flatpak_sandbox_info(pkg: &str) {
     if let Ok(out) = output {
         let info = String::from_utf8_lossy(&out.stdout);
         if info.contains("sandbox: none") {
-            println!("[reap] flatpak :: Warning: Flatpak {} is NOT sandboxed!", pkg);
+            println!(
+                "[reap] flatpak :: Warning: Flatpak {} is NOT sandboxed!",
+                pkg
+            );
         } else {
             println!("[reap] flatpak :: sandbox info for {}:\n{}", pkg, info);
         }
     }
 }
 // Example usage: call print_flatpak_sandbox_info in TUI/CLI details
-

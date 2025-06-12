@@ -31,11 +31,7 @@ pub fn is_installed(pkg: &str) -> bool {
 }
 
 pub fn get_version(pkg: &str) -> Option<String> {
-    let output = Command::new("pacman")
-        .arg("-Qi")
-        .arg(pkg)
-        .output()
-        .ok()?;
+    let output = Command::new("pacman").arg("-Qi").arg(pkg).output().ok()?;
     if !output.status.success() {
         return None;
     }

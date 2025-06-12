@@ -42,4 +42,3 @@ impl ReapConfig {
         self.ignored_packages.iter().any(|p| p == pkg)
     }
 }
-

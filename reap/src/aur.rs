@@ -1,8 +1,26 @@
 use crate::utils;
+use once_cell::sync::Lazy;
 use reqwest::blocking::Client;
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::error::Error;
+use std::fs;
+use std::path::PathBuf;
+use std::sync::Mutex;
 use std::sync::mpsc;
+
+static TAP_REPOS: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| {
+    let mut map = HashMap::new();
+    let config_path = dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .join("reap/taps.json");
+    if let Ok(data) = fs::read_to_string(&config_path) {
+        if let Ok(json) = serde_json::from_str::<HashMap<String, String>>(&data) {
+            map = json;
+        }
+    }
+    Mutex::new(map)
+});
 
 #[derive(Debug, Clone)]
 pub struct SearchResult {
@@ -60,16 +78,23 @@ pub fn clone_repo(_pkg: &str, _dest: &std::path::Path) -> bool {
 }
 
 pub async fn search(query: &str) -> Result<Vec<SearchResult>, Box<dyn Error + Send + Sync>> {
-    let url = format!("https://aur.archlinux.org/rpc/?v=5&type=search&arg={}", query);
+    let url = format!(
+        "https://aur.archlinux.org/rpc/?v=5&type=search&arg={}",
+        query
+    );
     let client = reqwest::Client::new();
     let resp = client.get(&url).send().await?;
     let aur_resp: AurResponse = resp.json().await?;
-    Ok(aur_resp.results.into_iter().map(|r| SearchResult {
-        name: r.name,
-        version: r.version,
-        description: r.description.unwrap_or_default(),
-        source: crate::core::Source::Aur,
-    }).collect())
+    Ok(aur_resp
+        .results
+        .into_iter()
+        .map(|r| SearchResult {
+            name: r.name,
+            version: r.version,
+            description: r.description.unwrap_or_default(),
+            source: crate::core::Source::Aur,
+        })
+        .collect())
 }
 
 pub fn aur_search_results(query: &str) -> Vec<AurResult> {
@@ -201,23 +226,17 @@ pub fn upgrade() {
     }
 }
 
-pub fn add_tap(repo: &str) {
-    let taps_dir = dirs::home_dir()
-        .unwrap_or_default()
-        .join(".local/share/reap/taps");
-    let _ = std::fs::create_dir_all(&taps_dir);
-    let repo_name = repo.split('/').next_back().unwrap_or(repo);
-    let dest = taps_dir.join(repo_name);
-    let _ = std::fs::remove_dir_all(&dest);
-    let status = std::process::Command::new("git")
-        .arg("clone")
-        .arg(repo)
-        .arg(&dest)
-        .status();
-    if !status.map(|s| s.success()).unwrap_or(false) {
-        eprintln!("[reap] Failed to add tap: {}", repo);
-    } else {
-        println!("[reap] Tap added: {}", repo);
-    }
+pub fn add_tap(name: &str, url: &str) {
+    let mut taps = TAP_REPOS.lock().unwrap();
+    taps.insert(name.to_string(), url.to_string());
+    let config_path = dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .join("reap/taps.json");
+    let _ = fs::create_dir_all(config_path.parent().unwrap());
+    let _ = fs::write(&config_path, serde_json::to_string_pretty(&*taps).unwrap());
+    println!("[reap] Added tap repo: {} -> {}", name, url);
 }
 
+pub fn get_taps() -> HashMap<String, String> {
+    TAP_REPOS.lock().unwrap().clone()
+}

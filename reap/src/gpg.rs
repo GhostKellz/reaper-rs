@@ -1,13 +1,13 @@
-use tokio::process::Command as TokioCommand;
-use std::process::Command;
 use std::path::Path;
+use std::process::Command;
+use tokio::process::Command as TokioCommand;
 
 /// Import a GPG key from multiple keyservers (sync)
 pub fn import_gpg_key(keyid: &str) {
     let keyservers = [
         "hkps://keyserver.ubuntu.com",
         "hkps://keys.openpgp.org",
-        "hkps://pgp.mit.edu"
+        "hkps://pgp.mit.edu",
     ];
     for server in &keyservers {
         let status = Command::new("gpg")
@@ -33,7 +33,10 @@ pub fn show_gpg_key_info(keyid: &str) {
             if line.starts_with("pub:") {
                 let fields: Vec<&str> = line.split(':').collect();
                 if fields.len() > 6 {
-                    println!("[reap] gpg :: Key trust: {} Expiry: {}", fields[1], fields[6]);
+                    println!(
+                        "[reap] gpg :: Key trust: {} Expiry: {}",
+                        fields[1], fields[6]
+                    );
                 }
             }
         }
@@ -80,7 +83,7 @@ pub async fn import_gpg_key_async(keyid: &str) {
     let keyservers = [
         "hkps://keyserver.ubuntu.com",
         "hkps://keys.openpgp.org",
-        "hkps://pgp.mit.edu"
+        "hkps://pgp.mit.edu",
     ];
     for server in &keyservers {
         let status = TokioCommand::new("gpg")
@@ -108,7 +111,10 @@ pub async fn show_gpg_key_info_async(keyid: &str) {
             if line.starts_with("pub:") {
                 let fields: Vec<&str> = line.split(':').collect();
                 if fields.len() > 6 {
-                    println!("[reap] gpg :: Key trust: {} Expiry: {}", fields[1], fields[6]);
+                    println!(
+                        "[reap] gpg :: Key trust: {} Expiry: {}",
+                        fields[1], fields[6]
+                    );
                 }
             }
         }
@@ -131,4 +137,3 @@ pub async fn check_key(keyid: &str) {
         println!("[reap] gpg :: Failed to check GPG key {}.", keyid);
     }
 }
-

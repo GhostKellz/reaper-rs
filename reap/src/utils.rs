@@ -1,12 +1,13 @@
-use std::collections::HashMap;
-use std::sync::Mutex;
-use once_cell::sync::Lazy;
 use crate::aur::SearchResult;
-use std::path::Path;
 use diff::lines;
+use once_cell::sync::Lazy;
+use std::collections::HashMap;
 use std::fs;
+use std::path::Path;
+use std::sync::Mutex;
 
-static PKGBUILD_CACHE: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+static PKGBUILD_CACHE: Lazy<Mutex<HashMap<String, String>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
 
 pub async fn async_get_pkgbuild_cached(pkg: &str) -> String {
     let cache = PKGBUILD_CACHE.lock().unwrap();
@@ -14,7 +15,10 @@ pub async fn async_get_pkgbuild_cached(pkg: &str) -> String {
         return cached.clone();
     }
     drop(cache);
-    let url = format!("https://aur.archlinux.org/cgit/aur.git/plain/PKGBUILD?h={}", pkg);
+    let url = format!(
+        "https://aur.archlinux.org/cgit/aur.git/plain/PKGBUILD?h={}",
+        pkg
+    );
     let text = match reqwest::get(&url).await {
         Ok(resp) => resp.text().await.unwrap_or_default(),
         Err(_) => String::from("[reap] PKGBUILD not found."),
@@ -26,8 +30,30 @@ pub async fn async_get_pkgbuild_cached(pkg: &str) -> String {
 
 pub fn audit_pkgbuild(pkgbuild: &str, lua: Option<&mlua::Lua>) {
     let risky_patterns = [
-        "curl", "wget", "sudo", "rm -rf", "chmod", "chown", "dd", "mkfs", "mount", "scp", "nc", "ncat", "bash -c", "eval",
-        "setcap", "setuid", "setgid", "useradd", "groupadd", "passwd", "iptables", "firewalld", "systemctl", "service"
+        "curl",
+        "wget",
+        "sudo",
+        "rm -rf",
+        "chmod",
+        "chown",
+        "dd",
+        "mkfs",
+        "mount",
+        "scp",
+        "nc",
+        "ncat",
+        "bash -c",
+        "eval",
+        "setcap",
+        "setuid",
+        "setgid",
+        "useradd",
+        "groupadd",
+        "passwd",
+        "iptables",
+        "firewalld",
+        "systemctl",
+        "service",
     ];
     for pat in risky_patterns.iter() {
         if pkgbuild.contains(pat) {
@@ -35,7 +61,9 @@ pub fn audit_pkgbuild(pkgbuild: &str, lua: Option<&mlua::Lua>) {
         }
     }
     if let Some(lua) = lua {
-        let _ = lua.load(r#"if custom_audit then custom_audit(...) end"#).exec();
+        let _ = lua
+            .load(r#"if custom_audit then custom_audit(...) end"#)
+            .exec();
     }
 }
 
@@ -45,14 +73,19 @@ pub fn backup_package(_pkg: &str) {
 
 /// Audit a .deb control file for risky patterns and allow Lua hooks
 pub fn audit_deb_control(control: &str, lua: Option<&mlua::Lua>) {
-    let risky_patterns = ["sudo", "rm -rf", "curl", "wget", "chmod", "chown", "dd", "mkfs", "mount", "scp", "nc", "ncat", "bash -c", "eval"];
+    let risky_patterns = [
+        "sudo", "rm -rf", "curl", "wget", "chmod", "chown", "dd", "mkfs", "mount", "scp", "nc",
+        "ncat", "bash -c", "eval",
+    ];
     for pat in risky_patterns.iter() {
         if control.contains(pat) {
             println!("[AUDIT][DEB] Found risky command: {}", pat);
         }
     }
     if let Some(lua) = lua {
-        let _ = lua.load(r#"if custom_audit then custom_audit(...) end"#).exec();
+        let _ = lua
+            .load(r#"if custom_audit then custom_audit(...) end"#)
+            .exec();
     }
 }
 
@@ -65,7 +98,9 @@ pub fn audit_flatpak_manifest(manifest: &str, lua: Option<&mlua::Lua>) {
         }
     }
     if let Some(lua) = lua {
-        let _ = lua.load(r#"if custom_audit then custom_audit(...) end"#).exec();
+        let _ = lua
+            .load(r#"if custom_audit then custom_audit(...) end"#)
+            .exec();
     }
 }
 
@@ -115,7 +150,9 @@ pub fn cli_rollback_pkgbuild(package: &str) {
 }
 
 pub fn cli_set_keyserver(keyserver: &str) {
-    let config_path = dirs::home_dir().unwrap_or_default().join(".config/reaper/brew.lua");
+    let config_path = dirs::home_dir()
+        .unwrap_or_default()
+        .join(".config/reaper/brew.lua");
     if let Ok(mut script) = fs::read_to_string(&config_path) {
         if script.contains("keyserver = ") {
             script = script.replace(
@@ -134,7 +171,13 @@ pub fn cli_set_keyserver(keyserver: &str) {
 
 pub fn print_search_results(results: &[SearchResult]) {
     for r in results {
-        println!("{} {} {} - {}", r.source.label(), r.name, r.version, r.description);
+        println!(
+            "{} {} {} - {}",
+            r.source.label(),
+            r.name,
+            r.version,
+            r.description
+        );
     }
 }
 
@@ -170,7 +213,9 @@ pub async fn check_keyserver_async(keyserver: &str) {
 }
 
 pub fn check_deb_integrity(deb_path: &Path) {
-    println!("[AUDIT] .deb file integrity check placeholder for: {}", deb_path.display());
+    println!(
+        "[AUDIT] .deb file integrity check placeholder for: {}",
+        deb_path.display()
+    );
     // TODO: Implement actual .deb integrity checking when ar2/tar dependencies are added
 }
-
