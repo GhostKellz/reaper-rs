@@ -385,6 +385,19 @@ pub fn get_outdated() -> Vec<String> {
     outdated
 }
 
-pub async fn handle_search(_terms: &Vec<String>) {
-    println!("TODO: implement handle_search");
+pub async fn handle_search(terms: &Vec<String>) {
+    for term in terms {
+        match search(term).await {
+            Ok(results) => {
+                if results.is_empty() {
+                    println!("[reap] No results for '{}'.", term);
+                } else {
+                    for result in results {
+                        println!("{} {} - {}", result.name, result.version, result.description);
+                    }
+                }
+            }
+            Err(e) => eprintln!("[reap] Search failed for '{}': {}", term, e),
+        }
+    }
 }

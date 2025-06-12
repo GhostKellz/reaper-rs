@@ -373,7 +373,7 @@ pub fn handle_doctor() {
 
 /// Handle CLI commands based on the provided `Cli` struct
 pub async fn handle_cli(cli: &Cli) {
-    use crate::cli::{Commands, GpgCmd};
+    use crate::cli::{Commands, FlatpakCmd, GpgCmd};
     match &cli.command {
         Commands::Install { pkgs } => {
             // Add parallel flag logic if needed
@@ -447,13 +447,43 @@ pub async fn handle_cli(cli: &Cli) {
             tui::run_ui().await;
             restore_terminal();
         }
+        Commands::Flatpak { cmd } => match cmd {
+            FlatpakCmd::Search { query } => {
+                let results = flatpak::search(query);
+                for result in results {
+                    println!("{} {} - {}", result.name, result.version, result.description);
+                }
+            }
+            FlatpakCmd::Install { pkg } => {
+                match flatpak::install_flatpak(pkg).await {
+                    Ok(_) => println!("[reap][flatpak] Installed {}", pkg),
+                    Err(e) => eprintln!("[reap][flatpak] Install failed for {}: {}", pkg, e),
+                }
+            }
+            FlatpakCmd::Upgrade => {
+                match flatpak::upgrade_flatpak().await {
+                    Ok(_) => println!("[reap][flatpak] Upgrade succeeded"),
+                    Err(e) => eprintln!("[reap][flatpak] Upgrade failed: {}", e),
+                }
+            }
+            FlatpakCmd::Audit { pkg } => {
+                flatpak::print_flatpak_sandbox_info(pkg);
+            }
+        },
         Commands::Gpg { cmd } => match cmd {
             GpgCmd::Refresh => gpg::refresh_keys(),
             GpgCmd::Import { keyid } => {
-                tokio::runtime::Runtime::new().unwrap().block_on(gpg::import_gpg_key_async(keyid));
+                gpg::import_gpg_key_async(keyid).await;
             }
             GpgCmd::Show { keyid } => {
-                tokio::runtime::Runtime::new().unwrap().block_on(gpg::show_gpg_key_info_async(keyid));
+                gpg::show_gpg_key_info_async(keyid).await;
+            }
+            GpgCmd::Check { keyid } => {
+                gpg::check_key(keyid).await;
+            }
+            GpgCmd::VerifyPkgbuild { path } => {
+                let path = std::path::Path::new(path);
+                let _ = gpg::gpg_check(path);
             }
         },
     }

@@ -79,11 +79,18 @@ pub enum Commands {
 }
 
 #[derive(Subcommand, Debug)]
+pub enum FlatpakCmd {
+    Search { query: String },
+    Install { pkg: String },
+    Upgrade,
+    Audit { pkg: String },
+}
+
+#[derive(Subcommand, Debug)]
 pub enum GpgCmd {
-    /// Refresh GPG keys
     Refresh,
-    /// Import a GPG key
     Import { keyid: String },
-    /// Show details of a GPG key
     Show { keyid: String },
+    Check { keyid: String },
+    VerifyPkgbuild { path: String },
 }
