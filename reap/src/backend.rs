@@ -3,15 +3,17 @@ use futures::FutureExt;
 use std::error::Error;
 use std::path::Path;
 use std::process::Command;
+use async_trait::async_trait;
 
-pub trait Backend {
+#[async_trait]
+pub trait Backend: Send + Sync {
     fn name(&self) -> &'static str;
     fn is_available(&self) -> bool;
-    fn search(&self, query: &str) -> Vec<SearchResult>;
-    fn install(&self, package: &str);
-    fn upgrade(&self);
-    fn audit(&self, package: &str);
-    fn gpg_check(&self, package: &str);
+    async fn search<'a>(&'a self, query: &'a str) -> Vec<SearchResult>;
+    async fn install<'a>(&'a self, package: &'a str);
+    async fn upgrade<'a>(&'a self);
+    async fn audit<'a>(&'a self, package: &'a str);
+    async fn gpg_check<'a>(&'a self, package: &'a str);
 }
 
 pub fn build_and_install(pkgdir: &Path) -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -27,6 +29,13 @@ pub fn build_and_install(pkgdir: &Path) -> Result<(), Box<dyn Error + Send + Syn
 }
 
 pub struct AurBackend;
+impl AurBackend {
+    pub fn new() -> Self {
+        AurBackend
+    }
+}
+
+#[async_trait]
 impl Backend for AurBackend {
     fn name(&self) -> &'static str {
         "AUR"
@@ -34,102 +43,45 @@ impl Backend for AurBackend {
     fn is_available(&self) -> bool {
         which::which("yay").is_ok() || which::which("paru").is_ok()
     }
-    fn search(&self, query: &str) -> Vec<SearchResult> {
-        // Use aurweb RPC API (blocking for now)
+    async fn search<'a>(&'a self, query: &'a str) -> Vec<SearchResult> {
+        let client = reqwest::Client::new();
         let url = format!(
             "https://aur.archlinux.org/rpc/?v=5&type=search&arg={}",
-            query
+            urlencoding::encode(query)
         );
-        let client = reqwest::blocking::Client::new();
-        let resp = client.get(&url).send();
+        let resp = client.get(&url).send().await;
         if let Ok(resp) = resp {
-            if let Ok(json) = resp.json::<serde_json::Value>() {
-                if let Some(results) = json.get("results").and_then(|v| v.as_array()) {
-                    return results
-                        .iter()
-                        .filter_map(|r| {
-                            Some(SearchResult {
-                                name: r.get("Name")?.as_str()?.to_string(),
-                                version: r.get("Version")?.as_str()?.to_string(),
-                                description: r
-                                    .get("Description")
-                                    .and_then(|d| d.as_str())
-                                    .unwrap_or("")
-                                    .to_string(),
-                                source: crate::core::Source::Aur,
-                            })
+            if let Ok(json) = resp.json::<serde_json::Value>().await {
+                if let Some(results) = json.get("results").and_then(|r| r.as_array()) {
+                    return results.iter().filter_map(|item| {
+                        Some(SearchResult {
+                            name: item.get("Name")?.as_str()?.to_string(),
+                            version: item.get("Version").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                            description: item.get("Description").and_then(|d| d.as_str()).unwrap_or("").to_string(),
+                            source: crate::core::Source::Aur,
                         })
-                        .collect();
+                    }).collect();
                 }
             }
         }
-        vec![]
+        Vec::new()
     }
-    fn install(&self, package: &str) {
-        let yay = which::which("yay").is_ok();
-        let paru = which::which("paru").is_ok();
-        let bin = if yay {
-            "yay"
-        } else if paru {
-            "paru"
-        } else {
-            "yay"
-        };
-        let _ = Command::new(bin).arg("-S").arg(package).status();
+    async fn install<'a>(&'a self, package: &'a str) {
+        crate::aur::install(vec![package]).await;
     }
-    fn upgrade(&self) {
-        // Not implemented for now
+    async fn upgrade<'a>(&'a self) {
+        crate::aur::upgrade_all().await;
     }
-    fn audit(&self, package: &str) {
-        // PKGBUILD audit: check for URL, license, maintainer anomalies
-        let pkgb = crate::aur::get_pkgbuild_preview(package);
-        if !pkgb.contains("url=") {
-            println!("[audit] PKGBUILD missing url field for {}", package);
-        }
-        if !pkgb.contains("license=") {
-            println!("[audit] PKGBUILD missing license field for {}", package);
-        }
-        if !pkgb.contains("maintainer=") {
-            println!("[audit] PKGBUILD missing maintainer field for {}", package);
-        }
-        crate::utils::audit_pkgbuild(&pkgb, None);
+    async fn audit<'a>(&'a self, package: &'a str) {
+        crate::utils::audit_package(package);
     }
-    fn gpg_check(&self, package: &str) {
-        // Use pacman -Si or AUR RPC to get PGP key info
-        let output = std::process::Command::new("pacman")
-            .arg("-Si")
-            .arg(package)
-            .output();
-        let mut keyid = None;
-        if let Ok(out) = output {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            for line in stdout.lines() {
-                if line.contains("PGP Signature") {
-                    if let Some(start) = line.find(':') {
-                        keyid = Some(line[start + 1..].trim().to_string());
-                    }
-                }
-            }
-        }
-        if let Some(key) = keyid {
-            let _ = std::process::Command::new("gpg")
-                .arg("--recv-keys")
-                .arg(&key)
-                .status();
-            let sig_path = format!("/var/cache/pacman/pkg/{}.sig", package);
-            let pkg_path = format!("/var/cache/pacman/pkg/{}.pkg.tar.zst", package);
-            let _ = std::process::Command::new("gpg")
-                .arg("--verify")
-                .arg(&sig_path)
-                .arg(&pkg_path)
-                .status();
-        } else {
-            println!("[gpg] No PGP key found for {}", package);
-        }
+    async fn gpg_check<'a>(&'a self, package: &'a str) {
+        crate::gpg::check_key(package).await;
     }
 }
 
 pub struct PacmanBackend;
+#[async_trait]
 impl Backend for PacmanBackend {
     fn name(&self) -> &'static str {
         "Pacman"
@@ -141,7 +93,7 @@ impl Backend for PacmanBackend {
             .map(|o| o.status.success())
             .unwrap_or(false)
     }
-    fn search(&self, query: &str) -> Vec<SearchResult> {
+    async fn search<'a>(&'a self, query: &'a str) -> Vec<SearchResult> {
         crate::core::unified_search(query)
             .now_or_never()
             .unwrap_or_default()
@@ -149,54 +101,54 @@ impl Backend for PacmanBackend {
             .filter(|r| r.source == crate::core::Source::Pacman)
             .collect()
     }
-    fn install(&self, package: &str) {
+    async fn install<'a>(&'a self, package: &'a str) {
         crate::pacman::install(package);
     }
-    fn upgrade(&self) { /* handled in aur::upgrade for now */
+    async fn upgrade<'a>(&'a self) { /* handled in aur::upgrade for now */
     }
-    fn audit(&self, package: &str) {
+    async fn audit<'a>(&'a self, package: &'a str) {
         println!("[reap] Pacman audit for {} (not implemented)", package);
     }
-    fn gpg_check(&self, package: &str) {
+    async fn gpg_check<'a>(&'a self, package: &'a str) {
         println!("[reap] Pacman GPG check for {} (not implemented)", package);
     }
 }
 
 pub struct FlatpakBackend;
+
+impl FlatpakBackend {
+    pub fn new() -> Self {
+        FlatpakBackend
+    }
+}
+
+#[async_trait]
 impl Backend for FlatpakBackend {
     fn name(&self) -> &'static str {
-        "Flatpak"
+        "flatpak"
     }
     fn is_available(&self) -> bool {
-        std::process::Command::new("which")
-            .arg("flatpak")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
+        true
     }
-    fn search(&self, query: &str) -> Vec<SearchResult> {
-        crate::core::unified_search(query)
-            .now_or_never()
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|r| r.source == crate::core::Source::Flatpak)
-            .collect()
+    async fn search<'a>(&'a self, query: &'a str) -> Vec<SearchResult> {
+        crate::flatpak::search(query)
     }
-    fn install(&self, package: &str) {
-        crate::flatpak::install(package);
+    async fn install<'a>(&'a self, package: &'a str) {
+        crate::flatpak::install_flatpak(package);
     }
-    fn upgrade(&self) {
-        crate::flatpak::upgrade();
+    async fn upgrade<'a>(&'a self) {
+        crate::flatpak::upgrade_flatpak();
     }
-    fn audit(&self, package: &str) {
-        println!("[reap] Flatpak audit for {} (not implemented)", package);
+    async fn audit<'a>(&'a self, _package: &'a str) {
+        todo!("Flatpak audit not yet implemented");
     }
-    fn gpg_check(&self, package: &str) {
-        println!("[reap] Flatpak GPG check for {} (not implemented)", package);
+    async fn gpg_check<'a>(&'a self, _package: &'a str) {
+        todo!("Flatpak GPG check not yet implemented");
     }
 }
 
 pub struct AptBackend;
+#[async_trait]
 impl Backend for AptBackend {
     fn name(&self) -> &'static str {
         "Apt"
@@ -208,7 +160,7 @@ impl Backend for AptBackend {
             .map(|o| o.status.success())
             .unwrap_or(false)
     }
-    fn search(&self, query: &str) -> Vec<SearchResult> {
+    async fn search<'a>(&'a self, query: &'a str) -> Vec<SearchResult> {
         let output = std::process::Command::new("apt-cache")
             .arg("search")
             .arg(query)
@@ -231,7 +183,7 @@ impl Backend for AptBackend {
         }
         results
     }
-    fn install(&self, package: &str) {
+    async fn install<'a>(&'a self, package: &'a str) {
         let _ = std::process::Command::new("sudo")
             .arg("apt")
             .arg("install")
@@ -239,7 +191,7 @@ impl Backend for AptBackend {
             .arg(package)
             .status();
     }
-    fn upgrade(&self) {
+    async fn upgrade<'a>(&'a self) {
         let _ = std::process::Command::new("sudo")
             .arg("apt")
             .arg("update")
@@ -250,10 +202,60 @@ impl Backend for AptBackend {
             .arg("-y")
             .status();
     }
-    fn audit(&self, package: &str) {
+    async fn audit<'a>(&'a self, package: &'a str) {
         println!("[reap] Apt audit for {} (not implemented)", package);
     }
-    fn gpg_check(&self, package: &str) {
+    async fn gpg_check<'a>(&'a self, package: &'a str) {
         println!("[reap] Apt GPG check for {} (not implemented)", package);
+    }
+}
+
+pub enum BackendImpl {
+    Aur(AurBackend),
+    Flatpak(FlatpakBackend),
+    Pacman(PacmanBackend),
+    Apt(AptBackend),
+}
+
+impl BackendImpl {
+    pub async fn search(&self, query: &str) -> Vec<SearchResult> {
+        match self {
+            BackendImpl::Aur(b) => b.search(query).await,
+            BackendImpl::Flatpak(b) => b.search(query).await,
+            BackendImpl::Pacman(b) => b.search(query).await,
+            BackendImpl::Apt(b) => b.search(query).await,
+        }
+    }
+    pub async fn install(&self, pkg: &str) {
+        match self {
+            BackendImpl::Aur(b) => b.install(pkg).await,
+            BackendImpl::Flatpak(b) => b.install(pkg).await,
+            BackendImpl::Pacman(b) => b.install(pkg).await,
+            BackendImpl::Apt(b) => b.install(pkg).await,
+        }
+    }
+    pub async fn upgrade(&self) {
+        match self {
+            BackendImpl::Aur(b) => b.upgrade().await,
+            BackendImpl::Flatpak(b) => b.upgrade().await,
+            BackendImpl::Pacman(b) => b.upgrade().await,
+            BackendImpl::Apt(b) => b.upgrade().await,
+        }
+    }
+    pub async fn audit(&self, pkg: &str) {
+        match self {
+            BackendImpl::Aur(b) => b.audit(pkg).await,
+            BackendImpl::Flatpak(b) => b.audit(pkg).await,
+            BackendImpl::Pacman(b) => b.audit(pkg).await,
+            BackendImpl::Apt(b) => b.audit(pkg).await,
+        }
+    }
+    pub async fn gpg_check(&self, pkg: &str) {
+        match self {
+            BackendImpl::Aur(b) => b.gpg_check(pkg).await,
+            BackendImpl::Flatpak(b) => b.gpg_check(pkg).await,
+            BackendImpl::Pacman(b) => b.gpg_check(pkg).await,
+            BackendImpl::Apt(b) => b.gpg_check(pkg).await,
+        }
     }
 }

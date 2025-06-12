@@ -3,7 +3,6 @@ use diff::lines;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::fs;
-use std::path::Path;
 use std::sync::Mutex;
 
 static PKGBUILD_CACHE: Lazy<Mutex<HashMap<String, String>>> =

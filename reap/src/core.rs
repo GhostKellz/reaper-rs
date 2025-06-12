@@ -1,6 +1,5 @@
 use crate::aur;
 use crate::aur::SearchResult;
-use crate::backend;
 use crate::backend::{AurBackend, Backend};
 use crate::cli::Cli;
 use crate::config::ReapConfig;
@@ -8,12 +7,10 @@ use crate::flatpak;
 use crate::pacman;
 use crate::tui::LogPane;
 use crate::utils;
-use crate::{gpg, hooks};
 use futures::FutureExt;
 use futures::future::join_all;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
@@ -215,29 +212,10 @@ pub fn print_search_results(results: &[SearchResult]) {
 }
 
 pub fn handle_install(pkgs: Vec<String>) {
+    let backend: Box<dyn Backend> = Box::new(AurBackend::new());
     for pkg in pkgs {
         println!("[reap] Installing {}...", pkg);
-        let info = aur::fetch_package_info(&pkg);
-        if info.is_err() {
-            eprintln!("[reap] Package '{}' not found in AUR.", pkg);
-            continue;
-        }
-        let tmp_dir = std::env::temp_dir().join(format!("reap-aur-{}", pkg));
-        let _ = std::fs::remove_dir_all(&tmp_dir);
-        if !aur::clone_repo(&pkg, &tmp_dir) {
-            eprintln!("[reap] Failed to clone repo for {}", pkg);
-            continue;
-        }
-        if !gpg::verify_pkgbuild(&tmp_dir) {
-            eprintln!("[reap] PKGBUILD verification failed for {}", pkg);
-            continue;
-        }
-        if let Err(e) = backend::build_and_install(&tmp_dir) {
-            eprintln!("[reap] Failed to build {}: {e}", pkg);
-            continue;
-        }
-        hooks::on_install(&pkg);
-        println!("[reap] Installed {}.", pkg);
+        backend.install(&pkg);
     }
 }
 
@@ -425,4 +403,15 @@ pub async fn upgrade_all() {
     println!("[reap] Upgrading Flatpak packages...");
     flatpak::upgrade_flatpak();
     println!("[reap] All enabled backends upgraded.");
+}
+
+pub fn get_backend(backend_str: &str) -> Box<dyn Backend> {
+    match backend_str {
+        "aur" => Box::new(AurBackend::new()),
+        "flatpak" => Box::new(crate::backend::FlatpakBackend::new()),
+        _ => {
+            eprintln!("[reap] Unknown backend: {}. Defaulting to AUR.", backend_str);
+            Box::new(AurBackend::new())
+        }
+    }
 }

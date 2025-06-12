@@ -30,4 +30,5 @@ rayon = "1.10.0"
 which = "8.0.0"
 owo-colors = "4"
 indicatif = "0.17"
-
+async-trait = "0.1"
+urlencoding = "2"
