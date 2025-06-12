@@ -75,9 +75,28 @@ pub fn fetch_package_info(pkg: &str) -> Result<AurInfo, Box<dyn Error + Send + S
     }
 }
 
-pub fn clone_repo(_pkg: &str, _dest: &std::path::Path) -> bool {
-    // TODO: Implement real clone logic
-    true
+pub fn clone_repo(pkg: &str, dest: &std::path::Path) -> bool {
+    // Real clone logic: use git to clone the AUR repo
+    let url = format!("https://aur.archlinux.org/{}.git", pkg);
+    let status = Command::new("git")
+        .arg("clone")
+        .arg(&url)
+        .arg(dest)
+        .status();
+    match status {
+        Ok(s) if s.success() => {
+            println!("[reap] Cloned {} to {}", pkg, dest.display());
+            true
+        }
+        Ok(s) => {
+            eprintln!("[reap] Failed to clone {}: exit code {}", pkg, s);
+            false
+        }
+        Err(e) => {
+            eprintln!("[reap] Error running git clone for {}: {}", pkg, e);
+            false
+        }
+    }
 }
 
 pub async fn search(query: &str) -> Result<Vec<SearchResult>, Box<dyn Error + Send + Sync>> {
@@ -134,7 +153,8 @@ pub async fn install(pkgs: Vec<&str>) -> Result<(), Box<dyn std::error::Error + 
         let bin = bin.to_string();
         let pkg = package.to_string();
         tasks.push(tokio::spawn(async move {
-            let deps = get_deps(&pkg);
+            let pkgb = crate::utils::async_get_pkgbuild_cached(&pkg).await;
+            let deps = get_deps(&pkgb);
             if !deps.is_empty() {
                 eprintln!("[reap] Dependencies for {}: {:?}", pkg.yellow(), deps);
                 for dep in &deps {
@@ -211,8 +231,7 @@ pub fn get_pkgbuild_preview(pkg: &str) -> String {
     String::from("[reap] PKGBUILD not found.")
 }
 
-pub fn get_deps(pkg: &str) -> Vec<String> {
-    let pkgb = get_pkgbuild_preview(pkg);
+pub fn get_deps(pkgb: &str) -> Vec<String> {
     let mut deps = Vec::new();
     let mut in_dep = false;
     let mut dep_buf = String::new();

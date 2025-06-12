@@ -4,6 +4,7 @@ use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::fs;
+use std::os::unix::process::ExitStatusExt;
 
 static PKGBUILD_CACHE: Lazy<Mutex<HashMap<String, String>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
@@ -71,24 +72,6 @@ pub fn audit_pkgbuild(pkgbuild: &str, lua: Option<&mlua::Lua>) {
 pub fn backup_package(_pkg: &str) {
     // TODO: Wire this into CLI flow in core::handle_cli() or remove if obsolete
     // Placeholder for backup logic (e.g., copy config files, etc.)
-}
-
-/// Audit a .deb control file for risky patterns and allow Lua hooks
-pub fn audit_deb_control(control: &str, lua: Option<&mlua::Lua>) {
-    let risky_patterns = [
-        "sudo", "rm -rf", "curl", "wget", "chmod", "chown", "dd", "mkfs", "mount", "scp", "nc",
-        "ncat", "bash -c", "eval",
-    ];
-    for pat in risky_patterns.iter() {
-        if control.contains(pat) {
-            println!("[AUDIT][DEB] Found risky command: {}", pat);
-        }
-    }
-    if let Some(lua) = lua {
-        let _ = lua
-            .load(r#"if custom_audit then custom_audit(...) end"#)
-            .exec();
-    }
 }
 
 /// Audit a Flatpak manifest for risky patterns and allow Lua hooks
@@ -236,15 +219,23 @@ pub async fn check_keyserver_async(keyserver: &str) {
     let output = tokio::process::Command::new("gpg")
         .args(["--keyserver", keyserver, "--list-keys"])
         .output()
-        .await;
-    if let Ok(out) = output {
-        if out.status.success() {
-            println!("[reap] GPG keyserver {} is reachable.", keyserver);
-        } else {
-            println!("[reap] GPG keyserver {} is NOT reachable.", keyserver);
-        }
+        .await
+        .map_err(|e| {
+            eprintln!("[reap] keyserver check failed: {}", e);
+            e
+        })
+        .unwrap_or_else(|e| {
+            eprintln!("[reap] keyserver check failed: {}", e);
+            std::process::Output {
+                status: std::process::ExitStatus::from_raw(1),
+                stdout: Vec::new(),
+                stderr: Vec::new(),
+            }
+        });
+    if output.status.success() {
+        println!("[reap] GPG keyserver {} is reachable.", keyserver);
     } else {
-        println!("[reap] Failed to check GPG keyserver {}.", keyserver);
+        println!("[reap] GPG keyserver {} is NOT reachable.", keyserver);
     }
 }
 
@@ -286,7 +277,10 @@ pub fn clean_cache() -> Result<String, String> {
                 let entry = entry.map_err(|e| format!("Read dir error: {}", e))?;
                 let p = entry.path();
                 if p.is_file() {
-                    fs::remove_file(&p).map_err(|e| format!("Failed to remove {}: {}", p.display(), e))?;
+                    fs::remove_file(&p).map_err(|e| {
+                        eprintln!("[reap] Failed to remove {}: {}", p.display(), e);
+                        e.to_string()
+                    })?;
                     deleted += 1;
                 }
             }

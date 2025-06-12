@@ -44,7 +44,7 @@ pub struct Cli {
 #[derive(Subcommand, Debug)]
 pub enum Commands {
     /// Install one or more packages
-    Install { pkgs: Vec<String> },
+    Install { pkgs: Vec<String>, parallel: bool },
     /// Remove one or more packages
     Remove { pkgs: Vec<String> },
     /// Install local packages
@@ -52,7 +52,7 @@ pub enum Commands {
     /// Search for packages
     Search { terms: Vec<String> },
     /// Upgrade all packages
-    Upgrade,
+    Upgrade { parallel: bool },
     /// Upgrade all packages
     UpgradeAll,
     /// Upgrade Flatpak packages
@@ -81,6 +81,13 @@ pub enum Commands {
         #[command(subcommand)]
         cmd: FlatpakCmd,
     },
+    /// Tap repository management
+    Tap {
+        #[command(subcommand)]
+        cmd: TapCmd,
+    },
+    /// Generate shell completion
+    Completion { shell: String },
 }
 
 #[derive(Subcommand, Debug)]
@@ -98,4 +105,15 @@ pub enum GpgCmd {
     Show { keyid: String },
     Check { keyid: String },
     VerifyPkgbuild { path: String },
+    SetKeyserver { url: String },
+    CheckKeyserver { url: String },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum TapCmd {
+    Add {
+        name: String,
+        url: String,
+    },
+    List,
 }

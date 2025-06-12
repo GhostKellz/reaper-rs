@@ -1,7 +1,6 @@
 use crate::aur;
 use crate::aur::SearchResult;
 use crate::aur::upgrade_all;
-use crate::aur::handle_search;
 use crate::backend::{AurBackend, Backend};
 use crate::cli::Cli;
 use crate::config::ReapConfig;
@@ -9,7 +8,6 @@ use crate::flatpak;
 use crate::pacman;
 use crate::tui::LogPane;
 use crate::utils;
-use crate::hooks;
 use crate::tui;
 use crate::utils::{pkgb_diff_audit, audit_flatpak_manifest};
 use crate::tui::{setup_terminal, restore_terminal};
@@ -27,7 +25,6 @@ pub enum Source {
     Aur,
     Pacman,
     Flatpak,
-    ChaoticAur,
 }
 
 impl Source {
@@ -36,7 +33,6 @@ impl Source {
             Source::Aur => "[AUR]",
             Source::Pacman => "[PACMAN]",
             Source::Flatpak => "[FLATPAK]",
-            Source::ChaoticAur => "[ChaoticAUR]",
         }
     }
 }
@@ -183,7 +179,6 @@ pub async fn install_with_priority(pkg: &str, _config: &ReapConfig) {
                     }
                 }
             }
-            _ => {}
         }
     }
     println!("[reap] Package '{}' not found in any source.", pkg);
@@ -276,13 +271,13 @@ pub async fn handle_install_parallel(pkgs: Vec<String>, max_parallel: usize) {
     println!("[reap] All installs complete.");
 }
 
-pub fn handle_upgrade() {
-    // TODO: Wire this into CLI flow in core::handle_cli()
+pub fn handle_upgrade(parallel: bool) {
     let config = crate::config::ReapConfig::load();
     let installed = crate::pacman::list_installed_aur();
     let mut to_upgrade: Vec<String> = Vec::new();
     for pkg in installed {
         if config.is_ignored(&pkg) {
+            println!("[reap] Skipping ignored package: {}", pkg);
             continue;
         }
         if let Ok(remote) = crate::aur::fetch_package_info(&pkg) {
@@ -297,14 +292,22 @@ pub fn handle_upgrade() {
         return;
     }
     println!("[reap] Upgrading: {:?}", to_upgrade);
-    tokio::runtime::Runtime::new()
-        .unwrap()
-        .block_on(handle_install_parallel(to_upgrade, config.parallel));
+    if parallel {
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(handle_install_parallel(to_upgrade, config.parallel));
+    } else {
+        for pkg in to_upgrade {
+            let _ = tokio::runtime::Runtime::new()
+                .unwrap()
+                .block_on(crate::aur::install(vec![pkg.as_str()]));
+        }
+    }
 }
 
 pub fn handle_rollback(pkg: &str) {
-    // TODO: Wire this into CLI flow in core::handle_cli()
     utils::rollback(pkg);
+    crate::hooks::on_rollback(pkg);
 }
 
 pub fn handle_audit(pkg: &str) {
@@ -372,12 +375,15 @@ pub fn handle_doctor() {
 }
 
 /// Handle CLI commands based on the provided `Cli` struct
-pub async fn handle_cli(cli: &Cli) {
-    use crate::cli::{Commands, FlatpakCmd, GpgCmd};
+pub async fn handle_cli(cli: &Cli) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    use crate::cli::{Commands, FlatpakCmd, GpgCmd, TapCmd};
     match &cli.command {
-        Commands::Install { pkgs } => {
-            // Add parallel flag logic if needed
-            handle_install(pkgs.clone());
+        Commands::Install { pkgs, parallel } => {
+            if *parallel {
+                handle_install_parallel(pkgs.clone(), ReapConfig::load().parallel).await;
+            } else {
+                handle_install(pkgs.clone());
+            }
         }
         Commands::Remove { pkgs } => {
             for pkg in pkgs {
@@ -390,39 +396,33 @@ pub async fn handle_cli(cli: &Cli) {
             }
         }
         Commands::Search { terms } => {
-            handle_search(terms).await;
+            for term in terms {
+                match aur::search(term).await {
+                    Ok(results) => print_search_results(&results),
+                    Err(e) => eprintln!("[reap] Search failed for '{}': {}", term, e),
+                }
+            }
         }
         Commands::UpgradeAll => {
-            match upgrade_all().await {
-                Ok(_) => println!("[reap] Upgrade all succeeded"),
-                Err(e) => eprintln!("[reap] Upgrade all failed: {:?}", e),
-            }
+            upgrade_all().await?;
+            println!("[reap] Upgrade all succeeded");
         }
         Commands::FlatpakUpgrade => {
-            match flatpak::upgrade_flatpak().await {
-                Ok(_) => println!("[reap] Flatpak upgrade succeeded"),
-                Err(e) => eprintln!("[reap] Flatpak upgrade failed: {:?}", e),
-            }
+            flatpak::upgrade_flatpak().await?;
+            println!("[reap] Flatpak upgrade succeeded");
         }
         Commands::Audit { pkg } => {
             handle_audit(pkg);
         }
         Commands::Rollback { pkg } => {
-            hooks::on_rollback(pkg);
-            println!("[reap] Rollback hook triggered for {}", pkg);
+            handle_rollback(pkg);
         }
         Commands::SyncDb => {
-            match aur::sync_db().await {
-                Ok(_) => println!("[reap] Sync DB succeeded"),
-                Err(e) => eprintln!("[reap] Sync DB failed: {:?}", e),
-            }
+            aur::sync_db().await?;
+            println!("[reap] Sync DB succeeded");
         }
-        Commands::Upgrade => {
-            // Example: parallel upgrade logic
-            let config = Arc::new(ReapConfig::load());
-            let pkgs = aur::get_outdated();
-            let log = None;
-            parallel_upgrade(pkgs, config, log).await;
+        Commands::Upgrade { parallel } => {
+            handle_upgrade(*parallel);
         }
         Commands::Pin { pkg } => {
             match utils::pin_package(pkg) {
@@ -450,21 +450,14 @@ pub async fn handle_cli(cli: &Cli) {
         Commands::Flatpak { cmd } => match cmd {
             FlatpakCmd::Search { query } => {
                 let results = flatpak::search(query);
-                for result in results {
-                    println!("{} {} - {}", result.name, result.version, result.description);
-                }
+                print_search_results(&results);
             }
             FlatpakCmd::Install { pkg } => {
-                match flatpak::install_flatpak(pkg).await {
-                    Ok(_) => println!("[reap][flatpak] Installed {}", pkg),
-                    Err(e) => eprintln!("[reap][flatpak] Install failed for {}: {}", pkg, e),
-                }
+                flatpak::install_flatpak(pkg).await?;
+                println!("[reap][flatpak] Installed {}", pkg);
             }
             FlatpakCmd::Upgrade => {
-                match flatpak::upgrade_flatpak().await {
-                    Ok(_) => println!("[reap][flatpak] Upgrade succeeded"),
-                    Err(e) => eprintln!("[reap][flatpak] Upgrade failed: {}", e),
-                }
+                flatpak::upgrade();
             }
             FlatpakCmd::Audit { pkg } => {
                 flatpak::print_flatpak_sandbox_info(pkg);
@@ -473,20 +466,47 @@ pub async fn handle_cli(cli: &Cli) {
         Commands::Gpg { cmd } => match cmd {
             GpgCmd::Refresh => gpg::refresh_keys(),
             GpgCmd::Import { keyid } => {
-                gpg::import_gpg_key_async(keyid).await;
+                gpg::import_gpg_key_async(keyid).await?;
+                println!("[reap] key imported successfully");
             }
             GpgCmd::Show { keyid } => {
-                gpg::show_gpg_key_info_async(keyid).await;
+                gpg::show_gpg_key_info(keyid);
             }
             GpgCmd::Check { keyid } => {
                 gpg::check_key(keyid).await;
             }
             GpgCmd::VerifyPkgbuild { path } => {
                 let path = std::path::Path::new(path);
-                let _ = gpg::gpg_check(path);
+                let _ = gpg::verify_pkgbuild(path);
+            }
+            GpgCmd::SetKeyserver { url } => {
+                utils::cli_set_keyserver(url);
+            }
+            GpgCmd::CheckKeyserver { url } => {
+                utils::check_keyserver_async(url).await;
             }
         },
+        Commands::Tap { cmd } => match cmd {
+            TapCmd::Add { name, url } => {
+                aur::add_tap(name, url);
+            }
+            TapCmd::List => {
+                let taps = aur::get_taps();
+                if taps.is_empty() {
+                    println!("[reap] No tap repositories configured.");
+                } else {
+                    println!("[reap] Tap repositories:");
+                    for (name, url) in taps {
+                        println!("{}={}", name, url);
+                    }
+                }
+            }
+        },
+        Commands::Completion { shell } => {
+            utils::completion(shell);
+        }
     }
+    Ok(())
 }
 
 pub fn get_backend(backend_str: &str) -> Box<dyn Backend> {

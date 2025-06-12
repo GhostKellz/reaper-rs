@@ -81,24 +81,32 @@ pub fn refresh_keys() {
 }
 
 /// Async GPG key import from multiple keyservers
-pub async fn import_gpg_key_async(keyid: &str) {
+pub async fn import_gpg_key_async(keyid: &str) -> Result<(), String> {
     let keyservers = [
         "hkps://keyserver.ubuntu.com",
         "hkps://keys.openpgp.org",
         "hkps://pgp.mit.edu",
     ];
+    let mut last_err = None;
     for server in &keyservers {
-        let status = TokioCommand::new("gpg")
+        match TokioCommand::new("gpg")
             .args(["--keyserver", server, "--recv-keys", keyid])
             .status()
-            .await;
-        if let Ok(s) = status {
-            if s.success() {
+            .await
+        {
+            Ok(s) if s.success() => {
                 println!("[reap] gpg :: Imported key {} from {}", keyid, server);
-                break;
+                return Ok(());
+            }
+            Ok(_) => {
+                last_err = Some(format!("Failed to import key from {}", server));
+            }
+            Err(e) => {
+                last_err = Some(format!("TokioCommand error for {}: {}", server, e));
             }
         }
     }
+    Err(last_err.unwrap_or_else(|| "All keyserver attempts failed".to_string()))
 }
 
 /// Async GPG key info display
