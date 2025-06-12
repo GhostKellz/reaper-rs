@@ -208,7 +208,7 @@ pub async fn run_ui() {
             if let event::Event::Key(key) = event::read().unwrap() {
                 match key.code {
                     event::KeyCode::Char('q') => break,
-                    event::KeyCode::Up => if selected > 0 { selected -= 1; },
+                    event::KeyCode::Up => selected = selected.saturating_sub(1),
                     event::KeyCode::Down => if selected + 1 < pkg_names.len() { selected += 1; },
                     event::KeyCode::Char('p') => {
                         let pkg = &pkg_names[selected];
