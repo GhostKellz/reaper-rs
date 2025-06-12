@@ -1,114 +1,67 @@
 # 📘 Reaper Documentation
 
-> **Reaper** is a secure, modular package manager and AUR helper for Arch Linux, designed to safely install, audit, sandbox, and rollback packages across the AUR, Flatpak, Pacman, and ChaoticAUR ecosystems.
+Reaper (`reap`) is a modern, async-first AUR helper and universal package manager for Arch Linux, written in Rust.
 
 ---
 
-## 🔧 Overview
+## Features
 
-Reaper unifies:
-
-* **System package management**
-* **AUR and custom Git repo support**
-* **Flatpak integration**
-* **Sandboxed testing environments**
-* **PKGBUILD auditing and linting**
-* **Rollback and snapshot support**
-* **TUI-based batch installs**
-
-Reaper is built for developers, hackers, and sysadmins who demand verifiability, repeatability, and modularity.
+- Unified install: AUR, Flatpak (auto-detects source)
+- Parallel async installs and upgrades
+- GPG signature verification for PKGBUILDs
+- Interactive TUI (search, install, logs, rollback)
+- Rollback and audit support
+- Lua config for custom hooks and ignored packages
+- No yay/paru fallback: fully self-contained
 
 ---
 
-## 🛠 Architecture
+## CLI Usage
 
-### Core Binary
-
-* `reap` — Meta package manager (search/install/upgrade/sandbox/test)
-
-### Components
-
-* **TUI** — `reap tui` provides a fuzzy-powered interactive interface
-* **Sandbox Engine** — Ephemeral VMs/containers for isolated testing
-* **Lua Hook Engine** — Lifecycle scripting for custom behavior
-
-### Supported Sources
-
-* `pacman`
-* `aur` (via internal or `yay`-style logic)
-* `chaotic-aur` (optional)
-* `flatpak`
-* `custom` (via `reap tap`)
+- `reap -S <pkg>`         Install AUR or Flatpak package
+- `reap -R <pkg>`         Remove a package
+- `reap -Ss <term>`       Search AUR
+- `reap -Syu`             Sync and upgrade all packages
+- `reap -U <file>`        Install local .zst or .pkg.tar.zst
+- `reap tui`              Launch TUI
+- `reap clean`            Clean package cache
+- `reap doctor`           Run diagnostics
+- `reap gpg refresh`      Refresh GPG keys
+- `reap rollback <pkg>`   Rollback a package
 
 ---
 
-## 🔐 Security Features
+## TUI Features
 
-* 💾 PKGBUILD diff viewer
-* 🔐 GPG key auto-fetch + verification
-* 🧪 Pre-install sandbox testing
-* 🕵️ File/network access tracing
-* 📀 Rollback support via snapshotting
-* 🔍 Dependency graph auditing
-
----
-
-## ⚙️ Configuration
-
-Reaper reads configuration from:
-
-* `~/.config/reap/config.lua`
-* System-wide defaults from `/etc/reap/`
-
-### Example `config.lua`:
-
-```lua
-return {
-  prefer = { "pacman", "aur", "flatpak" },
-  sandbox = {
-    enable = true,
-    backend = "lxc",
-  },
-  hooks = {
-    pre_install = "lua ./hooks/pre.lua",
-    post_build = "lua ./hooks/post.lua"
-  },
-  ignored_packages = {
-    "nvidia-beta",
-    "steam"
-  }
-}
-```
+- Real-time log pane
+- Search and install interactively
+- Parallel install/upgrade
+- PKGBUILD diff/preview
+- Scrollable results and logs
 
 ---
 
-## 🧪 Sandbox Testing
+## Security
 
-Reaper uses secure sandboxes to test packages **before** installation:
-
-Supported backends:
-
-* `lxc` (default, if available)
-* `systemd-nspawn`
-* `bubblewrap`
-* `firejail`
-
-Features:
-
-* Snapshot state
-* File/network tracing
-* Diff against clean root
-* Ephemeral installs
+- GPG key management and PKGBUILD signature checks
+- Rollback support
+- Audit mode for PKGBUILD and Flatpak manifests
 
 ---
 
-## 📚 Related Files
+## Configuration
 
-* [README.md](./README.md) – Project overview
-* [COMMANDS.md](./COMMANDS.md) – Full CLI reference
-* [CONTRIBUTING.md](./CONTRIBUTING.md)
+- `~/.config/reaper/brew.lua` for ignored packages, parallelism, and custom hooks
 
 ---
 
-☠️ Built with paranoia by **GhostKellz**
+## Roadmap
+
+- Makepkg integration
+- Backend switching (`--backend flatpak`)
+- Audit for GPG trust level, optional deps
+
+---
+
+See the ROADMAP.md for more details and planned features.
 

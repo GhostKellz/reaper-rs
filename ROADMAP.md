@@ -8,13 +8,15 @@
 
 Basic CLI functionality powered by `std::process::Command`:
 
-- [x] `reap -S <pkg>` – Install AUR or repo package
+- [x] `reap -S <pkg>` – Install AUR or repo package (AUR + Flatpak install via detect_source())
 - [x] `reap -R <pkg>` – Remove a package
 - [x] `reap -Syu` – Sync and upgrade packages
 - [x] `reap -U <file>` – Install local `.zst` or `.pkg.tar.zst`
 - [x] `reap -Ss <term>` – Search AUR (via JSON-RPC)
-- [x] Async execution using `tokio`
+- [x] Async execution using `tokio` (parallel_install implemented)
+- [x] GPG verification with PKGBUILD.sig
 - [x] Basic error handling and logging
+- [x] No longer relies on yay/paru (fallback removed)
 
 ---
 
@@ -22,11 +24,11 @@ Basic CLI functionality powered by `std::process::Command`:
 
 More control, fewer dependencies:
 
-- [ ] Parallel AUR package install (`--parallel`)
-- [ ] Drop reliance on `yay` or `paru`
+- [ ] Drop reliance on any external AUR helpers (done)
 - [ ] Manual PKGBUILD retrieval from AUR
-- [ ] Makepkg integration: `makepkg -si`
-- [ ] Support Flatpak, AppImage, and `.deb` (as backends)
+- [ ] Makepkg integration: `makepkg -si` (**TODO**)
+- [ ] Support Flatpak as backend (implemented)
+- [ ] `.deb` backend temporarily removed
 - [ ] Dependency resolution and conflict detection
 - [ ] Interactive prompts: confirm removals, edit PKGBUILDs
 
@@ -36,11 +38,11 @@ More control, fewer dependencies:
 
 Modular design, performance improvements:
 
-- [ ] Pluggable backends (`reap --backend aur`, `--backend flatpak`)
+- [ ] Pluggable backends (`reap --backend aur`, `--backend flatpak`) (**TODO**)
 - [ ] Caching: PKGBUILDs, metadata, search results
 - [ ] Persistent config (TOML/YAML under `~/.config/reap`)
 - [ ] Logging and audit mode (`--log`, `--audit`)
-- [ ] Async install queues with progress bars
+- [x] Async install queues with progress bars
 
 ---
 
@@ -58,8 +60,9 @@ Optional terminal UI using `ratatui` or similar:
 
 Built-in trust and transparency:
 
-- [ ] GPG key management (`--import-gpg`, `--check-gpg`)
-- [ ] Package rollback (`--rollback`)
+- [x] GPG key management (`--import-gpg`, `--check-gpg`)
+- [x] Package rollback (`--rollback`)
+- [ ] Audit for GPG trust level, optional deps (**TODO**)
 - [ ] Keyserver validation
 - [ ] Audit mode to show upstream changes
 
