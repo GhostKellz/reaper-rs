@@ -10,7 +10,6 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Mutex;
-use std::sync::mpsc;
 
 static TAP_REPOS: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| {
     let mut map = HashMap::new();
@@ -41,11 +40,6 @@ pub struct AurResult {
     pub version: String,
     #[serde(rename = "Description")]
     pub description: Option<String>,
-    #[serde(rename = "Maintainer")]
-    pub maintainer: Option<String>,
-    #[allow(dead_code)]
-    #[serde(rename = "URL")]
-    pub url: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -54,9 +48,7 @@ pub struct AurResponse {
 }
 
 pub struct AurInfo {
-    pub name: String,
     pub version: String,
-    pub description: Option<String>,
 }
 
 pub fn fetch_package_info(pkg: &str) -> Result<AurInfo, Box<dyn Error + Send + Sync>> {
@@ -66,40 +58,17 @@ pub fn fetch_package_info(pkg: &str) -> Result<AurInfo, Box<dyn Error + Send + S
     let aur_resp: AurResponse = resp.json()?;
     if let Some(r) = aur_resp.results.into_iter().next() {
         Ok(AurInfo {
-            name: r.name,
             version: r.version,
-            description: r.description,
         })
     } else {
         Err("Package not found".into())
     }
 }
 
-pub fn clone_repo(pkg: &str, dest: &std::path::Path) -> bool {
-    // Real clone logic: use git to clone the AUR repo
-    let url = format!("https://aur.archlinux.org/{}.git", pkg);
-    let status = Command::new("git")
-        .arg("clone")
-        .arg(&url)
-        .arg(dest)
-        .status();
-    match status {
-        Ok(s) if s.success() => {
-            println!("[reap] Cloned {} to {}", pkg, dest.display());
-            true
-        }
-        Ok(s) => {
-            eprintln!("[reap] Failed to clone {}: exit code {}", pkg, s);
-            false
-        }
-        Err(e) => {
-            eprintln!("[reap] Error running git clone for {}: {}", pkg, e);
-            false
-        }
-    }
-}
-
 pub async fn search(query: &str) -> Result<Vec<SearchResult>, Box<dyn Error + Send + Sync>> {
+    if let Some(cached) = crate::utils::get_cached_search(query) {
+        return Ok(cached);
+    }
     let url = format!(
         "https://aur.archlinux.org/rpc/?v=5&type=search&arg={}",
         query
@@ -107,7 +76,7 @@ pub async fn search(query: &str) -> Result<Vec<SearchResult>, Box<dyn Error + Se
     let client = reqwest::Client::new();
     let resp = client.get(&url).send().await?;
     let aur_resp: AurResponse = resp.json().await?;
-    Ok(aur_resp
+    let results: Vec<SearchResult> = aur_resp
         .results
         .into_iter()
         .map(|r| SearchResult {
@@ -116,7 +85,9 @@ pub async fn search(query: &str) -> Result<Vec<SearchResult>, Box<dyn Error + Se
             description: r.description.unwrap_or_default(),
             source: crate::core::Source::Aur,
         })
-        .collect())
+        .collect();
+    crate::utils::cache_search_result(query, &results);
+    Ok(results)
 }
 
 pub fn aur_search_results(query: &str) -> Vec<AurResult> {
@@ -131,18 +102,6 @@ pub fn aur_search_results(query: &str) -> Vec<AurResult> {
     }
     vec![]
 }
-
-// fn prompt_confirm(msg: &str) -> bool {
-//     use std::io::{self, Write};
-//     print!("{} [y/N]: ", msg);
-//     let _ = io::stdout().flush();
-//     let mut input = String::new();
-//     if io::stdin().read_line(&mut input).is_ok() {
-//         matches!(input.trim().to_lowercase().as_str(), "y" | "yes")
-//     } else {
-//         false
-//     }
-// }
 
 pub async fn install(pkgs: Vec<&str>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let yay = which::which("yay").is_ok();
@@ -198,9 +157,6 @@ pub async fn install(pkgs: Vec<&str>) -> Result<(), Box<dyn std::error::Error + 
     }
     Ok(())
 }
-
-pub use crate::hooks::on_install;
-pub use crate::hooks::on_rollback;
 
 pub fn uninstall(package: &str) {
     let yay = which::which("yay").is_ok();
@@ -264,36 +220,6 @@ pub fn get_deps(pkgb: &str) -> Vec<String> {
     deps
 }
 
-pub async fn upgrade() {
-    println!("[reap] Upgrading system packages...");
-    let _ = Command::new("sudo").arg("pacman").arg("-Syu").status();
-    let output = Command::new("pacman").arg("-Qm").output();
-    if let Ok(out) = output {
-        let pkgs = String::from_utf8_lossy(&out.stdout);
-        let config = crate::config::ReapConfig::load();
-        let (tx, rx) = mpsc::channel();
-        let mut _count = 0;
-        let mut tasks = Vec::new();
-        for line in pkgs.lines() {
-            let pkg = line.split_whitespace().next().unwrap_or("").to_string();
-            if !pkg.is_empty() && !config.is_ignored(&pkg) {
-                let tx = tx.clone();
-                _count += 1;
-                utils::backup_package(&pkg);
-                tasks.push(tokio::spawn(async move {
-                    let _ = crate::aur::install(vec![pkg.as_str()]).await;
-                    let _ = tx.send(pkg);
-                }));
-            }
-        }
-        drop(tx);
-        let _ = join_all(tasks).await;
-        for pkg in rx {
-            println!("[reap] Finished upgrade for {}", pkg);
-        }
-    }
-}
-
 pub fn add_tap(name: &str, url: &str) {
     let mut taps = TAP_REPOS.lock().unwrap();
     taps.insert(name.to_string(), url.to_string());
@@ -338,7 +264,6 @@ pub async fn upgrade_all() -> Result<(), Box<dyn std::error::Error + Send + Sync
             println!("[reap] Skipping pinned package: {}", pkg);
             continue;
         }
-        // Prompt user to upgrade (for now, auto-upgrade)
         to_upgrade.push(pkg.as_str());
     }
     if to_upgrade.is_empty() {
@@ -402,21 +327,4 @@ pub fn get_outdated() -> Vec<String> {
         }
     }
     outdated
-}
-
-pub async fn handle_search(terms: &Vec<String>) {
-    for term in terms {
-        match search(term).await {
-            Ok(results) => {
-                if results.is_empty() {
-                    println!("[reap] No results for '{}'.", term);
-                } else {
-                    for result in results {
-                        println!("{} {} - {}", result.name, result.version, result.description);
-                    }
-                }
-            }
-            Err(e) => eprintln!("[reap] Search failed for '{}': {}", term, e),
-        }
-    }
 }

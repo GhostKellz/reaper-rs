@@ -201,25 +201,6 @@ pub fn detect_source(pkg: &str) -> Option<Source> {
     }
 }
 
-pub async fn install(pkg: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    match detect_source(pkg) {
-        Some(Source::Aur) => {
-            match aur::install(vec![pkg]).await {
-                Ok(_) => println!("[reap] Installed {}", pkg),
-                Err(e) => eprintln!("[reap] Install failed for {}: {:?}", pkg, e),
-            }
-        }
-        Some(Source::Flatpak) => {
-            match flatpak::install_flatpak(pkg).await {
-                Ok(_) => println!("[reap] Installed {}", pkg),
-                Err(e) => eprintln!("[reap] Install failed for {}: {:?}", pkg, e),
-            }
-        }
-        _ => eprintln!("[reap] Could not detect source for '{}'.", pkg),
-    }
-    Ok(())
-}
-
 pub fn print_search_results(results: &[SearchResult]) {
     for r in results {
         println!(
@@ -329,49 +310,6 @@ pub fn handle_audit(pkg: &str) {
         }
         _ => println!("[AUDIT] Unknown package source for {}.", pkg),
     }
-}
-
-pub async fn handle_tui() {
-    setup_terminal();
-    crate::tui::launch_tui().await;
-    restore_terminal();
-}
-
-pub fn handle_doctor() {
-    let checks = [
-        ("gpg", "GPG available", which::which("gpg").is_ok()),
-        ("git", "Git available", which::which("git").is_ok()),
-        (
-            "makepkg",
-            "makepkg available",
-            which::which("makepkg").is_ok(),
-        ),
-        (
-            "flatpak",
-            "Flatpak available",
-            which::which("flatpak").is_ok(),
-        ),
-    ];
-    let config_path = dirs::home_dir()
-        .unwrap_or_default()
-        .join(".config/reaper/brew.lua");
-    let config_ok = config_path.exists();
-    let aur_ok = Command::new("curl")
-        .arg("-sSf")
-        .arg("https://aur.archlinux.org")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
-    println!("[reap doctor] System diagnostics:");
-    for (_, label, ok) in &checks {
-        println!("{} {}", if *ok { "✔" } else { "✗" }, label);
-    }
-    println!(
-        "{} Config file: {}",
-        if config_ok { "✔" } else { "✗" },
-        config_path.display()
-    );
-    println!("{} AUR network access", if aur_ok { "✔" } else { "✗" });
 }
 
 /// Handle CLI commands based on the provided `Cli` struct
@@ -507,18 +445,4 @@ pub async fn handle_cli(cli: &Cli) -> Result<(), Box<dyn std::error::Error + Sen
         }
     }
     Ok(())
-}
-
-pub fn get_backend(backend_str: &str) -> Box<dyn Backend> {
-    match backend_str {
-        "aur" => Box::new(AurBackend::new()),
-        "flatpak" => Box::new(crate::backend::FlatpakBackend::new()),
-        _ => {
-            eprintln!(
-                "[reap] Unknown backend: {}. Defaulting to AUR.",
-                backend_str
-            );
-            Box::new(AurBackend::new())
-        }
-    }
 }

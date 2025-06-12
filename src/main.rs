@@ -11,11 +11,14 @@ mod tui;
 mod utils;
 
 use clap::Parser;
-use cli::{Cli, Commands, GpgCmd};
+use cli::Cli;
 
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
     let _ = cli.backend.clone();
-    core::handle_cli(&cli).await;
+    if let Err(e) = core::handle_cli(&cli).await {
+        eprintln!("[reap] CLI error: {e}");
+        std::process::exit(1);
+    }
 }

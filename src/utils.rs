@@ -9,6 +9,20 @@ use std::os::unix::process::ExitStatusExt;
 static PKGBUILD_CACHE: Lazy<Mutex<HashMap<String, String>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
+static SEARCH_CACHE: Lazy<Mutex<HashMap<String, Vec<SearchResult>>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+/// Caches and returns AUR search results for a query
+pub fn get_cached_search(query: &str) -> Option<Vec<SearchResult>> {
+    let cache = SEARCH_CACHE.lock().unwrap();
+    cache.get(query).cloned()
+}
+
+pub fn cache_search_result(query: &str, results: &[SearchResult]) {
+    let mut cache = SEARCH_CACHE.lock().unwrap();
+    cache.insert(query.to_string(), results.to_vec());
+}
+
 pub async fn async_get_pkgbuild_cached(pkg: &str) -> String {
     {
         let cache = PKGBUILD_CACHE.lock().unwrap();
@@ -185,33 +199,6 @@ pub fn cli_set_keyserver(keyserver: &str) {
         println!("[reap] Set keyserver to {} in config.", keyserver);
     } else {
         println!("[reap] Could not update config at {:?}.", config_path);
-    }
-}
-
-pub fn print_search_results(results: &[SearchResult]) {
-    for r in results {
-        println!(
-            "{} {} {} - {}",
-            r.source.label(),
-            r.name,
-            r.version,
-            r.description
-        );
-    }
-}
-
-pub async fn check_keyserver(keyserver: &str) {
-    let output = std::process::Command::new("gpg")
-        .args(["--keyserver", keyserver, "--list-keys"])
-        .output();
-    if let Ok(out) = output {
-        if out.status.success() {
-            println!("[reap] GPG keyserver {} is reachable.", keyserver);
-        } else {
-            println!("[reap] GPG keyserver {} is NOT reachable.", keyserver);
-        }
-    } else {
-        println!("[reap] Failed to check GPG keyserver {}.", keyserver);
     }
 }
 
