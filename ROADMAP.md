@@ -29,6 +29,9 @@ Basic CLI functionality powered by `std::process::Command`:
 - [x] Full CLI wiring for Flatpak backend (search, install, upgrade, audit)
 - [x] Implemented `handle_search()` and wired AUR search subcommand
 - [x] `reap doctor` now provides async config validation
+- [x] `reap backup` – backs up config from `~/.config/reap` to `/var/lib/reaper/backups/config/`
+- [x] Short flag cleanup – resolved CLI flag conflicts for `-S`, `-Q`, `-U`, etc.
+- [x] Backup and rollback scaffolding (`utils::backup_config`, `rollback_pkgbuild`)
 
 ---
 
@@ -37,11 +40,11 @@ Basic CLI functionality powered by `std::process::Command`:
 More control, fewer dependencies:
 
 - [x] Flatpak backend CLI fully wired
-- [ ] Add interactive `--edit` and `--diff` for PKGBUILDs
-- [ ] Remove or finalize legacy `.deb` stubs
+- [x] Add interactive `--edit` flow for PKGBUILDs
+- [x] Makepkg integration: `makepkg -si` (via `utils::build_pkg`)
+- [ ] Add interactive `--diff` for PKGBUILDs
 - [ ] Move hooks to support Lua/custom external scripts (stretch)
 - [ ] Manual PKGBUILD retrieval from AUR
-- [ ] Makepkg integration: `makepkg -si` (**TODO**)
 - [ ] Dependency resolution and conflict detection
 - [ ] Interactive prompts: confirm removals, edit PKGBUILDs
 
@@ -71,7 +74,7 @@ Modular design, performance improvements:
 Optional terminal UI using `ratatui` or similar:
 
 - [x] TUI mode (`reap tui`) now launches an interactive CLI menu
-- [ ] Still in early stage; UI will be extended with package list, queue, and diff viewer
+- [ ] Add package list, queue manager, and PKGBUILD diff viewer to TUI
 - [ ] Search, install, queue, review updates interactively
 - [ ] Real-time log pane, diff viewer for PKGBUILDs
 
@@ -83,11 +86,11 @@ Built-in trust and transparency:
 
 - [x] GPG key management (`--import-gpg`, `--check-gpg`)
 - [x] Package rollback (`--rollback`)
-- [ ] Audit for GPG trust level, optional deps (**TODO**)
+- [x] Audit for GPG trust level, optional deps (via `get_trust_level`)
+- [x] GPG fallback key import if PKGBUILD signature is missing key
+- [x] Async keyserver health check (`check_keyserver`) (via CLI scaffold)
 - [ ] Keyserver validation
 - [ ] Audit mode to show upstream changes
-- [ ] Async keyserver health check (`check_keyserver`)
-- [ ] Wire GPG fallback key import on missing sigs
 
 ---
 
@@ -116,7 +119,7 @@ Long-term exploration:
 
 ## 📅 Status
 
-Current focus: Final GPG integration, Flatpak/AUR parity, config polish, and search result caching. TUI will evolve next.
+Current focus: Finalizing search result caching, logging/audit mode, TUI feature expansion, and plugin/hook support.
 
 ---
 
