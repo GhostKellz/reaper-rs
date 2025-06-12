@@ -104,7 +104,7 @@ pub fn gpg_check(pkgdir: &Path) -> Result<(), String> {
                     println!("[reap] gpg :: Key {} trust level: {}", keyid, trust);
                 }
             }
-            return Ok(());
+            Ok(())
         } else {
             // Try to extract missing keyid from error output
             let mut keyid = None;
@@ -155,32 +155,28 @@ pub fn gpg_check(pkgdir: &Path) -> Result<(), String> {
                                 println!(
                                     "[reap] gpg :: PKGBUILD signature verified after key import"
                                 );
-                                return Ok(());
+                                Ok(())
                             } else {
-                                return Err(format!(
+                                Err(format!(
                                     "[reap] gpg :: Verification still failed after importing key {}",
                                     keyid
-                                ));
+                                ))
                             }
                         } else {
-                            return Err(
+                            Err(
                                 "[reap] gpg :: Error re-running verification after key import"
                                     .to_string(),
-                            );
+                            )
                         }
                     }
-                    Ok(_) => {
-                        return Err(format!(
-                            "[reap] gpg :: Failed to import key {} from {}",
-                            keyid, keyserver
-                        ));
-                    }
-                    Err(e) => {
-                        return Err(format!(
-                            "[reap] gpg :: Error running gpg --recv-keys: {}",
-                            e
-                        ));
-                    }
+                    Ok(_) => Err(format!(
+                        "[reap] gpg :: Failed to import key {} from {}",
+                        keyid, keyserver
+                    )),
+                    Err(e) => Err(format!(
+                        "[reap] gpg :: Error running gpg --recv-keys: {}",
+                        e
+                    )),
                 }
             } else {
                 // Could not extract keyid
@@ -188,10 +184,10 @@ pub fn gpg_check(pkgdir: &Path) -> Result<(), String> {
                 for line in stderr.lines() {
                     eprintln!("[gpg] {line}");
                 }
-                return Err(
+                Err(
                     "[reap] gpg :: PKGBUILD signature verification failed and no keyid found"
                         .to_string(),
-                );
+                )
             }
         }
     } else {

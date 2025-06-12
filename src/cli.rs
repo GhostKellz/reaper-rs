@@ -13,24 +13,19 @@ pub struct Cli {
     pub sync: Option<Vec<String>>,
     #[arg(short = 'R', long = "remove", value_name = "PKG", num_args = 0.., conflicts_with_all = ["sync", "search", "upgrade", "local"], help = "Remove a package")]
     pub remove: Option<Vec<String>>,
-    #[arg(short = 'U', long = "local", value_name = "PATH", num_args = 0.., conflicts_with_all = ["sync", "remove", "search", "upgrade"])]
+    #[arg(long = "local", value_name = "PATH", num_args = 0.., conflicts_with_all = ["sync", "remove", "search", "upgrade"])]
     pub local: Option<Vec<String>>,
-    #[arg(short = 'S', long = "search", value_name = "TERM", num_args = 0.., conflicts_with_all = ["sync", "remove", "upgrade", "local"], help = "Search for a package")]
+    #[arg(short = 'Q', long = "search", value_name = "TERM", num_args = 0.., conflicts_with_all = ["sync", "remove", "upgrade", "local"], help = "Search for a package")]
     pub search: Option<Vec<String>>,
     #[arg(short = 'y', long = "refresh", conflicts_with = "upgrade")]
     pub refresh: bool,
     #[arg(short = 'u', long = "upgrade", conflicts_with = "refresh")]
     pub upgrade: bool,
-    #[arg(short = 'y', long = "syncdb", help = "Sync package database")] // -Sy
+    #[arg(long = "syncdb", help = "Sync package database")]
     pub syncdb: bool,
-    #[arg(short = 'u', long = "upgradeall", help = "Upgrade all packages")] // -Su
+    #[arg(short = 'U', long = "upgradeall", help = "Upgrade all packages")]
     pub upgradeall: bool,
-    #[arg(
-        short = 'S',
-        long = "install",
-        value_name = "PKG",
-        help = "Install a package"
-    )]
+    #[arg(long = "install", value_name = "PKG", help = "Install a package")]
     pub install: Option<String>,
     #[arg(
         long = "backend",
@@ -88,6 +83,8 @@ pub enum Commands {
     },
     /// Generate shell completion
     Completion { shell: String },
+    /// Backup current config to backup directory
+    Backup,
 }
 
 #[derive(Subcommand, Debug)]

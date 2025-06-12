@@ -1,67 +1,75 @@
 # 📘 Reaper Documentation
 
-Reaper (`reap`) is a modern, async-first AUR helper and universal package manager for Arch Linux, written in Rust.
+## Overview
 
----
+Reaper (`reap`) is a modern, async-first AUR helper and unified package manager written in Rust. It supports AUR, Flatpak, and tap-based sources, with a focus on security, extensibility, and a clean CLI/TUI experience.
 
-## Features
+## Installation
 
-- Unified install: AUR, Flatpak (auto-detects source)
-- Parallel async installs and upgrades
-- GPG signature verification for PKGBUILDs
-- Interactive TUI (search, install, logs, rollback)
-- Rollback and audit support
-- Lua config for custom hooks and ignored packages
-- No yay/paru fallback: fully self-contained
-
----
+See the README for installation instructions.
 
 ## CLI Usage
 
-- `reap -S <pkg>`         Install AUR or Flatpak package
-- `reap -R <pkg>`         Remove a package
-- `reap -Ss <term>`       Search AUR
-- `reap -Syu`             Sync and upgrade all packages
-- `reap -U <file>`        Install local .zst or .pkg.tar.zst
-- `reap tui`              Launch TUI
-- `reap clean`            Clean package cache
-- `reap doctor`           Run diagnostics
-- `reap gpg refresh`      Refresh GPG keys
-- `reap rollback <pkg>`   Rollback a package
+### Core Commands
 
----
+- `reap -S <pkg>` / `reap install <pkg>`: Install AUR or repo package (supports --parallel, --edit)
+- `reap -R <pkg>` / `reap remove <pkg>`: Remove a package
+- `reap -Syu` / `reap upgradeall`: Sync and upgrade all packages
+- `reap -U <file>` / `reap local <file>`: Install local package file
+- `reap -Q <term>` / `reap search <term>`: Search AUR (and Flatpak)
+- `reap pin <pkg>`: Pin a package to exclude from upgrades
+- `reap clean`: Clean cache and temp files
+- `reap doctor`: Run system health check and config audit
+- `reap tui`: Launch the interactive TUI
+- `reap backup`: Backup current config to backup directory
 
-## TUI Features
+### Flatpak Commands
 
-- Real-time log pane
-- Search and install interactively
-- Parallel install/upgrade
-- PKGBUILD diff/preview
-- Scrollable results and logs
+- `reap flatpak search <query>`: Search Flatpak packages
+- `reap flatpak install <pkg>`: Install a Flatpak package
+- `reap flatpak upgrade`: Upgrade Flatpak packages
+- `reap flatpak audit <pkg>`: Audit Flatpak sandbox info
 
----
+### GPG Commands
 
-## Security
+- `reap gpg import <keyid>`: Import a GPG key
+- `reap gpg show <keyid>`: Show GPG key info and trust level
+- `reap gpg check <keyid>`: Check GPG key
+- `reap gpg verify <pkgdir>`: Verify PKGBUILD signature in a directory
+- `reap gpg set-keyserver <url>`: Set the GPG keyserver
+- `reap gpg check-keyserver <url>`: Check if a GPG keyserver is reachable
 
-- GPG key management and PKGBUILD signature checks
-- Rollback support
-- Audit mode for PKGBUILD and Flatpak manifests
+### Tap Commands
 
----
+- `reap tap add <name> <url>`: Add a tap repository
+- `reap tap list`: List configured tap repositories
+
+### Other
+
+- `reap completion <shell>`: Generate shell completion for bash, zsh, or fish
 
 ## Configuration
 
-- `~/.config/reaper/brew.lua` for ignored packages, parallelism, and custom hooks
+- Config files are stored in `~/.config/reap/`
+- Backups are stored in `/var/lib/reaper/backups/`
+- Pinning: `~/.config/reap/pinned.toml`
+- Tap repos: `~/.config/reap/taps.json`
 
----
+## Hooks
 
-## Roadmap
+- Post-install and rollback hooks are supported via `hooks.rs`
 
-- Makepkg integration
-- Backend switching (`--backend flatpak`)
-- Audit for GPG trust level, optional deps
+## Security
 
----
+- GPG verification is integrated for PKGBUILD signatures
+- Keyserver fallback and trust level reporting
 
-See the ROADMAP.md for more details and planned features.
+## TUI
+
+- Run `reap tui` for an interactive terminal UI (early stage)
+
+## See also
+
+- [ROADMAP.md](./ROADMAP.md) for planned features and status
+- [COMMANDS.md](./COMMANDS.md) for a concise command reference
 

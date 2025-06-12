@@ -2,9 +2,9 @@ use crate::aur::SearchResult;
 use diff::lines;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
+use std::fs;
 use std::os::unix::process::ExitStatusExt;
 use std::sync::Mutex;
-use std::fs;
 
 static PKGBUILD_CACHE: Lazy<Mutex<HashMap<String, String>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
@@ -82,12 +82,6 @@ pub fn audit_pkgbuild(pkgbuild: &str, lua: Option<&mlua::Lua>) {
     }
 }
 
-#[allow(dead_code)]
-pub fn backup_package(_pkg: &str) {
-    // TODO: Wire this into CLI flow in core::handle_cli() or remove if obsolete
-    // Placeholder for backup logic (e.g., copy config files, etc.)
-}
-
 /// Audit a Flatpak manifest for risky patterns and allow Lua hooks
 pub fn audit_flatpak_manifest(manifest: &str, lua: Option<&mlua::Lua>) {
     let risky_patterns = ["command", "run", "sudo", "curl", "wget", "bash", "eval"];
@@ -134,7 +128,8 @@ pub fn audit_package(pkg: &str) {
 
 // --- CLI stub functions for compatibility ---
 pub fn pkgb_diff_audit(package: &str, pkgb: &str) {
-    let backup_path = std::path::PathBuf::from(format!("/var/lib/reaper/backup/{}_PKGBUILD.bak", package));
+    let backup_path =
+        std::path::PathBuf::from(format!("/var/lib/reaper/backup/{}_PKGBUILD.bak", package));
     if let Ok(old_pkgb) = fs::read_to_string(&backup_path) {
         for diff in lines(&old_pkgb, pkgb) {
             match diff {
@@ -159,10 +154,33 @@ pub fn completion(shell: &str) {
 
 #[allow(dead_code)]
 pub fn rollback(package: &str) {
-    let backup_path = std::path::PathBuf::from(format!("/var/lib/reaper/backup/{}_backup", package));
-    if fs::metadata(&backup_path).is_ok() {
-        println!("[reap] Restoring backup for {}...", package);
-        // Actual restore logic would go here
+    let backup_dir = std::path::PathBuf::from(format!("/var/lib/reaper/backups/{}", package));
+    let restore_dir = std::env::temp_dir().join(format!("reap-aur-{}", package));
+    if backup_dir.exists() && backup_dir.is_dir() {
+        if restore_dir.exists() {
+            if let Err(e) = std::fs::remove_dir_all(&restore_dir) {
+                eprintln!("[reap] Failed to remove old restore dir: {}", e);
+                return;
+            }
+        }
+        if let Err(e) = std::fs::create_dir_all(&restore_dir) {
+            eprintln!("[reap] Failed to create restore dir: {}", e);
+            return;
+        }
+        match fs_extra::dir::copy(
+            &backup_dir,
+            &restore_dir,
+            &fs_extra::dir::CopyOptions::new()
+                .overwrite(true)
+                .content_only(true),
+        ) {
+            Ok(_) => println!(
+                "[reap] Restored backup for {} to {}",
+                package,
+                restore_dir.display()
+            ),
+            Err(e) => eprintln!("[reap] Failed to restore backup for {}: {}", package, e),
+        }
     } else {
         println!("[reap] No backup found for {}.", package);
     }
@@ -170,10 +188,23 @@ pub fn rollback(package: &str) {
 
 #[allow(dead_code)]
 pub fn cli_rollback_pkgbuild(package: &str) {
-    let backup_path = std::path::PathBuf::from(format!("/var/lib/reaper/backup/{}_PKGBUILD.bak", package));
-    if fs::metadata(&backup_path).is_ok() {
-        println!("[reap] Restoring PKGBUILD for {}...", package);
-        // Actual restore logic would go here
+    let backup_path =
+        std::path::PathBuf::from(format!("/var/lib/reaper/backups/{}/PKGBUILD.bak", package));
+    let restore_dir = std::env::temp_dir().join(format!("reap-aur-{}", package));
+    let restore_path = restore_dir.join("PKGBUILD");
+    if backup_path.exists() {
+        if let Err(e) = std::fs::create_dir_all(&restore_dir) {
+            eprintln!("[reap] Failed to create restore dir: {}", e);
+            return;
+        }
+        match std::fs::copy(&backup_path, &restore_path) {
+            Ok(_) => println!(
+                "[reap] Restored PKGBUILD for {} to {}",
+                package,
+                restore_path.display()
+            ),
+            Err(e) => eprintln!("[reap] Failed to restore PKGBUILD for {}: {}", package, e),
+        }
     } else {
         println!("[reap] No PKGBUILD backup found for {}.", package);
     }
@@ -358,5 +389,31 @@ pub fn build_pkg(pkgdir: &std::path::Path, edit: bool) -> Result<(), String> {
             }
         }
         Err(e) => Err(format!("[reap] Failed to run makepkg: {}", e)),
+    }
+}
+
+pub fn backup_config() -> Result<(), String> {
+    use std::fs;
+    use std::path::PathBuf;
+    let config_dir = dirs::home_dir().unwrap_or_default().join(".config/reap");
+    let backup_dir = PathBuf::from("/var/lib/reaper/backups/config");
+    if !config_dir.exists() {
+        return Err(format!(
+            "[reap] Config dir not found: {}",
+            config_dir.display()
+        ));
+    }
+    if let Err(e) = fs::create_dir_all(&backup_dir) {
+        return Err(format!("[reap] Failed to create backup dir: {}", e));
+    }
+    let options = fs_extra::dir::CopyOptions::new()
+        .overwrite(true)
+        .content_only(false);
+    match fs_extra::dir::copy(&config_dir, &backup_dir, &options) {
+        Ok(_) => {
+            println!("[reap] Backed up config to {}", backup_dir.display());
+            Ok(())
+        }
+        Err(e) => Err(format!("[reap] Failed to backup config: {}", e)),
     }
 }

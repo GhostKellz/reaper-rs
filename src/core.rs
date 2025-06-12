@@ -152,12 +152,18 @@ pub async fn install_with_priority(pkg: &str, _config: &ReapConfig, edit: bool) 
                         let pkgb = aur::get_pkgbuild_preview(pkg);
                         let pkgb_path = tmpdir.join("PKGBUILD");
                         if std::fs::write(&pkgb_path, pkgb).is_ok() {
-                            println!("[reap] building package in {} (edit: {})", tmpdir.display(), edit);
+                            println!(
+                                "[reap] building package in {} (edit: {})",
+                                tmpdir.display(),
+                                edit
+                            );
                             match utils::build_pkg(&tmpdir, edit) {
                                 Ok(_) => {
                                     let verify_result = gpg::gpg_check(&tmpdir);
                                     match verify_result {
-                                        Ok(_) => println!("[reap] PKGBUILD signature verified and trusted."),
+                                        Ok(_) => println!(
+                                            "[reap] PKGBUILD signature verified and trusted."
+                                        ),
                                         Err(e) => {
                                             eprintln!("[reap] PKGBUILD verification failed: {e}");
                                         }
@@ -463,6 +469,10 @@ pub async fn handle_cli(cli: &Cli) -> Result<(), Box<dyn std::error::Error + Sen
         Commands::Completion { shell } => {
             utils::completion(shell);
         }
+        Commands::Backup => match utils::backup_config() {
+            Ok(_) => println!("[reap] Config backup complete."),
+            Err(e) => eprintln!("[reap] Config backup failed: {}", e),
+        },
     }
     Ok(())
 }
