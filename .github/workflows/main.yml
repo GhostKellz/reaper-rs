@@ -2,28 +2,37 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./reap
+    runs-on: self-hosted
+    name: Build on nv-palladium
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
       - name: Set up Rust
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
           override: true
+          components: clippy, rustfmt
+
+      - name: Clippy Check
+        run: cargo clippy --all-targets --all-features -- -D warnings
+        working-directory: ./reap
+
+      - name: Format Check
+        run: cargo fmt --check
+        working-directory: ./reap
+
       - name: Build
         run: cargo build --verbose
-      - name: Run tests
+        working-directory: ./reap
+
+      - name: Test
         run: cargo test --verbose
-      - name: Clippy
-        run: cargo clippy -- -D warnings
-      - name: Format
-        run: cargo fmt -- --check
+        working-directory: ./reap
