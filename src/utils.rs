@@ -2,9 +2,9 @@ use crate::aur::SearchResult;
 use diff::lines;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
-use std::fs;
 use std::os::unix::process::ExitStatusExt;
 use std::sync::Mutex;
+use std::fs;
 
 static PKGBUILD_CACHE: Lazy<Mutex<HashMap<String, String>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
@@ -134,9 +134,8 @@ pub fn audit_package(pkg: &str) {
 
 // --- CLI stub functions for compatibility ---
 pub fn pkgb_diff_audit(package: &str, pkgb: &str) {
-    let backup_path = format!("/var/lib/reaper/backup/{}_PKGBUILD.bak", package);
-    let backup_path = std::path::Path::new(&backup_path);
-    if let Ok(old_pkgb) = fs::read_to_string(backup_path) {
+    let backup_path = std::path::PathBuf::from(format!("/var/lib/reaper/backup/{}_PKGBUILD.bak", package));
+    if let Ok(old_pkgb) = fs::read_to_string(&backup_path) {
         for diff in lines(&old_pkgb, pkgb) {
             match diff {
                 diff::Result::Left(l) => println!("[-] {}", l),
@@ -160,8 +159,7 @@ pub fn completion(shell: &str) {
 
 #[allow(dead_code)]
 pub fn rollback(package: &str) {
-    // TODO: Wire this into CLI flow in core::handle_cli() or remove if obsolete
-    let backup_path = format!("/var/lib/reaper/backup/{}_backup", package);
+    let backup_path = std::path::PathBuf::from(format!("/var/lib/reaper/backup/{}_backup", package));
     if fs::metadata(&backup_path).is_ok() {
         println!("[reap] Restoring backup for {}...", package);
         // Actual restore logic would go here
@@ -172,8 +170,7 @@ pub fn rollback(package: &str) {
 
 #[allow(dead_code)]
 pub fn cli_rollback_pkgbuild(package: &str) {
-    // TODO: Wire this into CLI flow in core::handle_cli() or remove if obsolete
-    let backup_path = format!("/var/lib/reaper/backup/{}_PKGBUILD.bak", package);
+    let backup_path = std::path::PathBuf::from(format!("/var/lib/reaper/backup/{}_PKGBUILD.bak", package));
     if fs::metadata(&backup_path).is_ok() {
         println!("[reap] Restoring PKGBUILD for {}...", package);
         // Actual restore logic would go here
@@ -242,7 +239,6 @@ pub fn pin_package(pkg: &str) -> Result<(), String> {
 }
 
 pub fn is_pinned(pkg: &str) -> bool {
-    use std::fs;
     let config_path = dirs::home_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
         .join(".config/reap/pinned.toml");
@@ -322,5 +318,45 @@ pub fn doctor_report() -> Result<String, String> {
         Ok("System appears healthy".to_string())
     } else {
         Ok(format!("Issues found:\n{}", issues.join("\n")))
+    }
+}
+
+pub fn build_pkg(pkgdir: &std::path::Path, edit: bool) -> Result<(), String> {
+    use std::env;
+    use std::process::Command;
+    let pkgb_path = pkgdir.join("PKGBUILD");
+    if edit {
+        let editor = env::var("EDITOR").unwrap_or_else(|_| "nano".to_string());
+        let status = Command::new(editor).arg(&pkgb_path).status();
+        if let Ok(s) = status {
+            if !s.success() {
+                return Err(format!("[reap] Editor exited with status: {}", s));
+            }
+        } else {
+            return Err("[reap] Failed to launch editor".to_string());
+        }
+    }
+    let output = Command::new("makepkg")
+        .arg("-si")
+        .arg("--noconfirm")
+        .current_dir(pkgdir)
+        .output();
+    match output {
+        Ok(out) => {
+            if out.status.success() {
+                println!(
+                    "[reap] makepkg succeeded:\n{}",
+                    String::from_utf8_lossy(&out.stdout)
+                );
+                Ok(())
+            } else {
+                eprintln!(
+                    "[reap] makepkg failed:\n{}",
+                    String::from_utf8_lossy(&out.stderr)
+                );
+                Err(format!("[reap] makepkg failed with status: {}", out.status))
+            }
+        }
+        Err(e) => Err(format!("[reap] Failed to run makepkg: {}", e)),
     }
 }

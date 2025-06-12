@@ -114,7 +114,7 @@ pub async fn parallel_upgrade(
             let config = config.clone();
             let log = log.clone();
             tokio::spawn(async move {
-                install_with_priority(&pkg, &config).await;
+                install_with_priority(&pkg, &config, false).await;
                 if let Some(log) = log.as_ref() {
                     log.push(&format!("[reap] Upgraded {}", pkg));
                 } else {
@@ -141,16 +141,36 @@ pub async fn parallel_upgrade(
     }
 }
 
-pub async fn install_with_priority(pkg: &str, _config: &ReapConfig) {
-    // TODO: Wire this into CLI flow in core::handle_cli()
+pub async fn install_with_priority(pkg: &str, _config: &ReapConfig, edit: bool) {
     let priorities = vec![Source::Aur, Source::Pacman, Source::Flatpak];
     for src in priorities {
         match src {
             Source::Aur => {
                 if aur::aur_search_results(pkg).iter().any(|r| r.name == pkg) {
-                    match aur::install(vec![pkg]).await {
-                        Ok(_) => println!("[reap] Installed {}", pkg),
-                        Err(e) => eprintln!("[reap] Install failed for {}: {:?}", pkg, e),
+                    let tmpdir = std::env::temp_dir().join(format!("reap-aur-{}", pkg));
+                    if std::fs::create_dir_all(&tmpdir).is_ok() {
+                        let pkgb = aur::get_pkgbuild_preview(pkg);
+                        let pkgb_path = tmpdir.join("PKGBUILD");
+                        if std::fs::write(&pkgb_path, pkgb).is_ok() {
+                            println!("[reap] building package in {} (edit: {})", tmpdir.display(), edit);
+                            match utils::build_pkg(&tmpdir, edit) {
+                                Ok(_) => {
+                                    let verify_result = gpg::gpg_check(&tmpdir);
+                                    match verify_result {
+                                        Ok(_) => println!("[reap] PKGBUILD signature verified and trusted."),
+                                        Err(e) => {
+                                            eprintln!("[reap] PKGBUILD verification failed: {e}");
+                                        }
+                                    }
+                                    println!("[reap] Built and installed {}", pkg);
+                                }
+                                Err(e) => eprintln!("[reap] Build failed for {}: {}", pkg, e),
+                            }
+                        } else {
+                            eprintln!("[reap] Failed to write PKGBUILD for {}", pkg);
+                        }
+                    } else {
+                        eprintln!("[reap] Failed to create temp dir for {}", pkg);
                     }
                     return;
                 }
@@ -224,7 +244,6 @@ pub fn handle_install(pkgs: Vec<String>) {
 }
 
 pub async fn handle_install_parallel(pkgs: Vec<String>, max_parallel: usize) {
-    // TODO: Wire this into CLI flow in core::handle_cli()
     let semaphore = Arc::new(Semaphore::new(max_parallel));
     let pb = ProgressBar::new(pkgs.len() as u64);
     pb.set_style(
@@ -407,6 +426,9 @@ pub async fn handle_cli(cli: &Cli) -> Result<(), Box<dyn std::error::Error + Sen
             }
             GpgCmd::Show { keyid } => {
                 gpg::show_gpg_key_info(keyid);
+                if let Some(trust) = gpg::get_trust_level(keyid) {
+                    println!("[reap][gpg] Trust level for key {}: {}", keyid, trust);
+                }
             }
             GpgCmd::Check { keyid } => {
                 gpg::check_key(keyid).await;
