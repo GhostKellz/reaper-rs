@@ -74,7 +74,7 @@ pub async fn parallel_install(pkgs: &[&str]) {
     for &pkg in pkgs {
         let pkg = pkg.to_string();
         tasks.push(tokio::spawn(async move {
-            let _ = aur::install(vec![&pkg]).await;
+            aur::install(vec![&pkg]).await;
             pkg
         }));
     }
@@ -107,7 +107,7 @@ pub async fn parallel_upgrade(
             let config = config.clone();
             let log = log.clone();
             tokio::spawn(async move {
-                let _ = install_with_priority(&pkg, &config).await;
+                install_with_priority(&pkg, &config).await;
                 if let Some(log) = log.as_ref() {
                     log.push(&format!("[reap] Upgraded {}", pkg));
                 } else {
@@ -140,7 +140,7 @@ pub async fn install_with_priority(pkg: &str, _config: &ReapConfig) {
         match src {
             Source::Aur => {
                 if aur::aur_search_results(pkg).iter().any(|r| r.name == pkg) {
-                    let _ = aur::install(vec![pkg]).await;
+                    aur::install(vec![pkg]).await;
                     return;
                 }
             }
@@ -151,7 +151,7 @@ pub async fn install_with_priority(pkg: &str, _config: &ReapConfig) {
                     .output();
                 if let Ok(out) = output {
                     if out.status.success() {
-                        let _ = pacman::install(pkg);
+                        pacman::install(pkg);
                         return;
                     }
                 }
@@ -163,7 +163,7 @@ pub async fn install_with_priority(pkg: &str, _config: &ReapConfig) {
                     .output();
                 if let Ok(out) = output {
                     if out.status.success() {
-                        let _ = flatpak::install(pkg);
+                        flatpak::install(pkg);
                         return;
                     }
                 }
@@ -194,10 +194,10 @@ pub fn detect_source(pkg: &str) -> Option<Source> {
 pub async fn install(pkg: &str) {
     match detect_source(pkg) {
         Some(Source::Aur) => {
-            let _ = aur::install(vec![pkg]).await;
+            aur::install(vec![pkg]).await;
         }
         Some(Source::Flatpak) => {
-            let _ = flatpak::install_flatpak(pkg);
+            flatpak::install_flatpak(pkg);
         }
         _ => eprintln!("[reap] Could not detect source for '{}'.", pkg),
     }
@@ -219,7 +219,7 @@ pub fn handle_install(pkgs: Vec<String>) {
     let backend: Box<dyn Backend> = Box::new(AurBackend::new());
     for pkg in pkgs {
         println!("[reap] Installing {}...", pkg);
-        let _ = backend.install(&pkg);
+        backend.install(&pkg);
     }
 }
 
@@ -291,15 +291,15 @@ pub fn handle_upgrade() {
 }
 
 pub fn handle_rollback(pkg: &str) {
-    let _ = utils::rollback(pkg);
+    utils::rollback(pkg);
 }
 
 pub fn handle_audit(pkg: &str) {
-    let _ = utils::audit_package(pkg);
+    utils::audit_package(pkg);
 }
 
 pub async fn handle_tui() {
-    let _ = crate::tui::launch_tui().await;
+    crate::tui::launch_tui().await;
 }
 
 pub fn handle_doctor() {
@@ -348,47 +348,47 @@ pub fn handle_clean() {
 }
 
 pub fn handle_gpg_refresh() {
-    let _ = crate::gpg::refresh_keys();
+    crate::gpg::refresh_keys();
 }
 
 /// Handle CLI commands based on the provided `Cli` struct
 pub async fn handle_cli(cli: &Cli) {
     if let Some(pkgs) = &cli.sync {
         for pkg in pkgs {
-            let _ = aur::install(vec![pkg]).await;
+            aur::install(vec![pkg]).await;
         }
     }
     if let Some(pkgs) = &cli.remove {
         for pkg in pkgs {
-            let _ = aur::uninstall(pkg);
+            aur::uninstall(pkg);
         }
     }
     if let Some(pkgs) = &cli.local {
         for path in pkgs {
-            let _ = aur::install_local(path);
+            aur::install_local(path);
         }
     }
     if let Some(terms) = &cli.search {
         for term in terms {
-            let _ = aur::search(term).await;
+            aur::search(term).await;
         }
     }
     if cli.upgradeall {
-        let _ = upgrade_all().await;
+        upgrade_all().await;
     }
     if cli.syncdb {
-        let _ = aur::sync_db().await;
+        aur::sync_db().await;
     }
     if let Some(pkg) = &cli.install {
-        let _ = aur::install(vec![pkg]).await;
+        aur::install(vec![pkg]).await;
     }
 }
 
 pub async fn upgrade_all() {
     println!("[reap] Upgrading AUR packages...");
-    let _ = aur::upgrade_all().await;
+    aur::upgrade_all().await;
     println!("[reap] Upgrading Flatpak packages...");
-    let _ = flatpak::upgrade_flatpak();
+    flatpak::upgrade_flatpak();
     println!("[reap] All enabled backends upgraded.");
 }
 
