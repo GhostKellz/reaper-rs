@@ -7,6 +7,7 @@ use crate::config::ReapConfig;
 use crate::flatpak;
 use crate::pacman;
 use crate::tui::LogPane;
+use crate::utils;
 use crate::{gpg, hooks};
 use futures::FutureExt;
 use futures::future::join_all;
@@ -317,26 +318,16 @@ pub fn handle_upgrade() {
         .block_on(handle_install_parallel(to_upgrade, config.parallel));
 }
 
-pub fn handle_rollback(pkg: String) {
-    let backup = dirs::cache_dir()
-        .unwrap_or_else(|| PathBuf::from("/tmp"))
-        .join("reaper/backups")
-        .join(format!("{}.pkg.tar.zst", pkg));
-    if !backup.exists() {
-        eprintln!("[reap] No backup found for {}.", pkg);
-        return;
-    }
-    let status = std::process::Command::new("sudo")
-        .arg("pacman")
-        .arg("-U")
-        .arg(&backup)
-        .status();
-    if status.map(|s| s.success()).unwrap_or(false) {
-        println!("[reap] Rolled back {}.", pkg);
-        hooks::on_rollback(&pkg);
-    } else {
-        eprintln!("[reap] Rollback failed for {}.", pkg);
-    }
+pub fn handle_rollback(pkg: &str) {
+    utils::rollback(pkg);
+}
+
+pub fn handle_audit(pkg: &str) {
+    utils::audit_package(pkg);
+}
+
+pub async fn handle_tui() {
+    crate::tui::launch_tui().await;
 }
 
 pub fn handle_doctor() {
@@ -380,10 +371,6 @@ pub fn handle_pin(_pkg: String) {
     println!("[reap] Pinning not yet implemented.");
 }
 
-pub fn handle_tui() {
-    println!("[reap] TUI not yet implemented.");
-}
-
 pub fn handle_clean() {
     println!("[reap] Clean not yet implemented.");
 }
@@ -394,45 +381,47 @@ pub fn handle_gpg_refresh() {
 
 /// Handle CLI commands based on the provided `Cli` struct
 pub async fn handle_cli(cli: &Cli) {
-    if let Some(pkgs_str) = &cli.install {
-        for pkg in pkgs_str.split_whitespace() {
+    if let Some(pkgs) = &cli.sync {
+        for pkg in pkgs {
             aur::install(vec![pkg]).await;
         }
     }
-
-    if let Some(pkgs_vec) = &cli.remove {
-        for pkg in pkgs_vec {
+    if let Some(pkgs) = &cli.remove {
+        for pkg in pkgs {
             aur::uninstall(pkg);
         }
     }
-
-    if let Some(terms_vec) = &cli.search {
-        for term in terms_vec {
-            let results = AurBackend.search(term);
-            println!("{:?}", results);
+    if let Some(pkgs) = &cli.local {
+        for path in pkgs {
+            aur::install_local(path);
         }
     }
-
-    if cli.syncdb {
-        crate::aur::sync_db().await;
+    if let Some(terms) = &cli.search {
+        for term in terms {
+            let results = aur::search(term).await.unwrap_or_default();
+            utils::print_search_results(&results);
+        }
     }
-
     if cli.upgradeall {
         upgrade_all().await;
     }
-
-    if let Some(paths_vec) = &cli.local {
-        for path in paths_vec {
-            crate::aur::install_local(path);
-        }
+    if cli.syncdb {
+        aur::sync_db().await;
     }
+    if let Some(pkg) = &cli.install {
+        aur::install(vec![pkg]).await;
+    }
+    // Example: --audit <pkg>
+    // if let Some(pkg) = &cli.audit { utils::audit_package(pkg); }
+    // Example: --check-gpg <keyserver>
+    // if let Some(keyserver) = &cli.check_gpg { utils::check_keyserver_async(keyserver).await; }
+    // Example: --rollback <pkg>
+    // if let Some(pkg) = &cli.rollback { utils::rollback(pkg); }
 }
 
 pub async fn upgrade_all() {
-    // Upgrade AUR (yay/pacman)
     println!("[reap] Upgrading AUR packages...");
     aur::upgrade_all().await;
-    // Upgrade Flatpak
     println!("[reap] Upgrading Flatpak packages...");
     flatpak::upgrade_flatpak();
     println!("[reap] All enabled backends upgraded.");

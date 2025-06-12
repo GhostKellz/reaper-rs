@@ -241,11 +241,3 @@ pub async fn check_keyserver_async(keyserver: &str) {
         println!("[reap] Failed to check GPG keyserver {}.", keyserver);
     }
 }
-
-pub fn check_deb_integrity(deb_path: &Path) {
-    println!(
-        "[AUDIT] .deb file integrity check placeholder for: {}",
-        deb_path.display()
-    );
-    // TODO: Implement actual .deb integrity checking when ar2/tar dependencies are added
-}
