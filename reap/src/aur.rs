@@ -8,6 +8,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::sync::mpsc;
+use std::process::Command;
 
 static TAP_REPOS: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| {
     let mut map = HashMap::new();
@@ -150,6 +151,19 @@ pub fn install(package: &str) {
     let _ = std::fs::remove_dir_all(&tmp_dir);
 }
 
+pub fn uninstall(package: &str) {
+    let output = Command::new("yay")
+        .arg("-Rns")
+        .arg(package)
+        .output()
+        .expect("Failed to uninstall package");
+    if !output.status.success() {
+        eprintln!("Error uninstalling package: {:?}", output);
+    } else {
+        println!("Uninstalled package: {}", package);
+    }
+}
+
 pub fn get_pkgbuild_preview(pkg: &str) -> String {
     let url = format!(
         "https://aur.archlinux.org/cgit/aur.git/plain/PKGBUILD?h={}",
@@ -239,4 +253,19 @@ pub fn add_tap(name: &str, url: &str) {
 
 pub fn get_taps() -> HashMap<String, String> {
     TAP_REPOS.lock().unwrap().clone()
+}
+
+pub async fn sync_db() {
+    // TODO: implement real sync logic
+    println!("Syncing package database...");
+}
+
+pub async fn upgrade_all() {
+    // TODO: implement real upgrade logic
+    println!("Upgrading all packages...");
+}
+
+pub fn install_local(path: &str) {
+    // TODO: implement local install logic
+    println!("Installing from local path: {}", path);
 }

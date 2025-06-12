@@ -1,7 +1,7 @@
 use crate::aur;
 use crate::aur::SearchResult;
 use crate::backend;
-use crate::config::ReapConfig;
+use crate::backend::{AurBackend, Backend};
 use crate::flatpak;
 use crate::pacman;
 use crate::tui::LogPane;
@@ -15,6 +15,8 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
+use crate::cli::Cli;
+use crate::config::ReapConfig;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Source {
@@ -450,4 +452,40 @@ pub fn handle_clean() {
 
 pub fn handle_gpg_refresh() {
     crate::gpg::refresh_keys();
+}
+
+/// Handle CLI commands based on the provided `Cli` struct
+pub async fn handle_cli(cli: &Cli) {
+    if let Some(pkgs_str) = &cli.install {
+        for pkg in pkgs_str.split_whitespace() {
+            crate::aur::install(pkg);
+        }
+    }
+
+    if let Some(pkgs_vec) = &cli.remove {
+        for pkg in pkgs_vec {
+            crate::aur::uninstall(pkg);
+        }
+    }
+
+    if let Some(terms_vec) = &cli.search {
+        for term in terms_vec {
+            let results = AurBackend.search(term);
+            println!("{:?}", results);
+        }
+    }
+
+    if cli.syncdb {
+        crate::aur::sync_db().await;
+    }
+
+    if cli.upgradeall {
+        crate::aur::upgrade_all().await;
+    }
+
+    if let Some(paths_vec) = &cli.local {
+        for path in paths_vec {
+            crate::aur::install_local(path);
+        }
+    }
 }

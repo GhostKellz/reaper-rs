@@ -1,6 +1,7 @@
 use crate::aur;
 use crate::aur::SearchResult;
 use crate::core;
+use crate::config::ReapConfig;
 use crossterm::event::{self, Event, KeyCode};
 use mlua::Lua;
 use ratatui::prelude::{Constraint, Direction, Layout};
@@ -109,7 +110,7 @@ pub async fn launch_tui() {
                             // Parallel install selected packages
                             let pkgs: Vec<String> =
                                 results.iter().map(|r| r.name.clone()).collect();
-                            let config = Arc::new(crate::config::ReapConfig::load());
+                            let config = Arc::new(ReapConfig::load());
                             let log = log_pane.clone();
                             tokio::spawn(async move {
                                 core::parallel_install(pkgs, config, Some(log)).await;
@@ -119,7 +120,7 @@ pub async fn launch_tui() {
                             // Parallel upgrade all packages
                             let pkgs: Vec<String> =
                                 results.iter().map(|r| r.name.clone()).collect();
-                            let config = Arc::new(crate::config::ReapConfig::load());
+                            let config = Arc::new(ReapConfig::load());
                             let log = log_pane.clone();
                             tokio::spawn(async move {
                                 core::parallel_upgrade(pkgs, config, Some(log)).await;
