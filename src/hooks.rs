@@ -22,10 +22,14 @@ pub fn run_hook(hook: &str, pkg: &str) {
     }
 }
 
+#[allow(dead_code)]
 pub fn on_install(pkg: &str) {
+    // TODO: Wire this into CLI flow in core::handle_cli()
     println!("[reap][hook] Installed {}", pkg);
 }
 
+#[allow(dead_code)]
 pub fn on_rollback(pkg: &str) {
+    // TODO: Wire this into CLI flow in core::handle_cli()
     println!("[reap][hook] Rollback for {}", pkg);
 }

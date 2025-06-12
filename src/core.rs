@@ -73,6 +73,7 @@ pub async fn unified_search(query: &str) -> Vec<SearchResult> {
 }
 
 pub async fn parallel_install(pkgs: &[&str]) {
+    // TODO: Wire this into CLI flow in core::handle_cli()
     let mut tasks = Vec::new();
     for &pkg in pkgs {
         let pkg = pkg.to_string();
@@ -141,6 +142,7 @@ pub async fn parallel_upgrade(
 }
 
 pub async fn install_with_priority(pkg: &str, _config: &ReapConfig) {
+    // TODO: Wire this into CLI flow in core::handle_cli()
     let priorities = vec![Source::Aur, Source::Pacman, Source::Flatpak];
     for src in priorities {
         match src {
@@ -240,6 +242,7 @@ pub fn handle_install(pkgs: Vec<String>) {
 }
 
 pub async fn handle_install_parallel(pkgs: Vec<String>, max_parallel: usize) {
+    // TODO: Wire this into CLI flow in core::handle_cli()
     let semaphore = Arc::new(Semaphore::new(max_parallel));
     let pb = ProgressBar::new(pkgs.len() as u64);
     pb.set_style(
@@ -269,21 +272,8 @@ pub async fn handle_install_parallel(pkgs: Vec<String>, max_parallel: usize) {
     println!("[reap] All installs complete.");
 }
 
-pub async fn handle_search(terms: &Vec<String>) {
-    for query in terms {
-        let results: Vec<SearchResult> = aur::search(query).await.unwrap_or_else(|_| Vec::new());
-        for result in &results {
-            let installed = pacman::is_installed(&result.name);
-            let marker = if installed { "[*]" } else { "   " };
-            println!(
-                "{} {} {} - {}",
-                marker, result.name, result.version, result.description
-            );
-        }
-    }
-}
-
 pub fn handle_upgrade() {
+    // TODO: Wire this into CLI flow in core::handle_cli()
     let config = crate::config::ReapConfig::load();
     let installed = crate::pacman::list_installed_aur();
     let mut to_upgrade: Vec<String> = Vec::new();
@@ -309,6 +299,7 @@ pub fn handle_upgrade() {
 }
 
 pub fn handle_rollback(pkg: &str) {
+    // TODO: Wire this into CLI flow in core::handle_cli()
     utils::rollback(pkg);
 }
 
@@ -427,15 +418,17 @@ pub async fn handle_cli(cli: &Cli) {
             }
         }
         Commands::Doctor => {
-            match utils::doctor_report() {
-                Ok(msg) => println!("[reap doctor] {}", msg),
-                Err(e) => eprintln!("[reap doctor] Error: {}", e),
-            }
+            utils::doctor_report().map_or_else(
+                |e| eprintln!("[reap doctor] Error: {}", e),
+                |msg| println!("[reap doctor] {}", msg),
+            );
         }
         Commands::Tui => {
             tui::run_ui().await;
         }
-        &Commands::Gpg { .. } => println!("GPG command not yet implemented."),
+        Commands::Gpg { cmd } => match cmd {
+            GpgCmd::Refresh => gpg::refresh_keys(),
+        },
     }
 }
 

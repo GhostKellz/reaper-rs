@@ -56,7 +56,9 @@ fn run_lua_hook(hook: &str, pkg: &str) {
     }
 }
 
+#[allow(dead_code)]
 pub async fn launch_tui() {
+    // TODO: Wire this into CLI flow in core::handle_cli()
     let mut terminal = setup_terminal();
     let mut query = String::new();
     let mut results = Vec::new();

@@ -66,8 +66,10 @@ pub fn verify_pkgbuild(pkgdir: &Path) -> bool {
     false
 }
 
+#[allow(dead_code)]
 /// Refresh all GPG keys
 pub fn refresh_keys() {
+    // TODO: Wire this into CLI flow in core::handle_cli()
     let status = Command::new("gpg").arg("--refresh-keys").status();
     if let Ok(s) = status {
         if s.success() {

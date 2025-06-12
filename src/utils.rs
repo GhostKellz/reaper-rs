@@ -67,7 +67,9 @@ pub fn audit_pkgbuild(pkgbuild: &str, lua: Option<&mlua::Lua>) {
     }
 }
 
+#[allow(dead_code)]
 pub fn backup_package(_pkg: &str) {
+    // TODO: Wire this into CLI flow in core::handle_cli() or remove if obsolete
     // Placeholder for backup logic (e.g., copy config files, etc.)
 }
 
@@ -159,7 +161,9 @@ pub fn completion(shell: &str) {
     }
 }
 
+#[allow(dead_code)]
 pub fn rollback(package: &str) {
+    // TODO: Wire this into CLI flow in core::handle_cli() or remove if obsolete
     let backup_path = format!("/var/lib/reaper/backup/{}_backup", package);
     if fs::metadata(&backup_path).is_ok() {
         println!("[reap] Restoring backup for {}...", package);
@@ -169,7 +173,9 @@ pub fn rollback(package: &str) {
     }
 }
 
+#[allow(dead_code)]
 pub fn cli_rollback_pkgbuild(package: &str) {
+    // TODO: Wire this into CLI flow in core::handle_cli() or remove if obsolete
     let backup_path = format!("/var/lib/reaper/backup/{}_PKGBUILD.bak", package);
     if fs::metadata(&backup_path).is_ok() {
         println!("[reap] Restoring PKGBUILD for {}...", package);
