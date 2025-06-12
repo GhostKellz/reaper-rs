@@ -23,16 +23,12 @@ jobs:
 
       - name: Clippy Check
         run: cargo clippy --all-targets --all-features -- -D warnings
-        working-directory: ./reap
 
       - name: Format Check
         run: cargo fmt --check
-        working-directory: ./reap
 
       - name: Build
         run: cargo build --verbose
-        working-directory: ./reap
 
       - name: Test
         run: cargo test --verbose
-        working-directory: ./reap
