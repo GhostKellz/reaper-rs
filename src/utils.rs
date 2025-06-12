@@ -2,9 +2,9 @@ use crate::aur::SearchResult;
 use diff::lines;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
-use std::sync::Mutex;
 use std::fs;
 use std::os::unix::process::ExitStatusExt;
+use std::sync::Mutex;
 
 static PKGBUILD_CACHE: Lazy<Mutex<HashMap<String, String>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
@@ -255,12 +255,17 @@ pub fn is_pinned(pkg: &str) -> bool {
 
 pub fn clean_cache() -> Result<String, String> {
     let home = dirs::home_dir().unwrap_or_default();
-    let cache_dirs = vec!["/tmp/reap".to_string(), format!("{}/.cache/reap", home.display())];
+    let cache_dirs = vec![
+        "/tmp/reap".to_string(),
+        format!("{}/.cache/reap", home.display()),
+    ];
     let mut deleted = 0;
     for dir in &cache_dirs {
         let path = std::path::PathBuf::from(dir);
         if path.exists() && path.is_dir() {
-            for entry in fs::read_dir(&path).map_err(|e| format!("Failed to read {}: {}", dir, e))? {
+            for entry in
+                fs::read_dir(&path).map_err(|e| format!("Failed to read {}: {}", dir, e))?
+            {
                 let entry = entry.map_err(|e| format!("Read dir error: {}", e))?;
                 let p = entry.path();
                 if p.is_file() {
@@ -290,7 +295,11 @@ pub fn doctor_report() -> Result<String, String> {
                 if name.starts_with("reap-") && path.is_symlink() {
                     if let Ok(target) = fs::read_link(&path) {
                         if !target.exists() {
-                            issues.push(format!("Broken symlink: {} -> {}", path.display(), target.display()));
+                            issues.push(format!(
+                                "Broken symlink: {} -> {}",
+                                path.display(),
+                                target.display()
+                            ));
                         }
                     }
                 }

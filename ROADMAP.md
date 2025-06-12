@@ -24,6 +24,11 @@ Basic CLI functionality powered by `std::process::Command`:
 - [x] `reap --pin` – pins packages to exclude from upgrades.
 - [x] `reap --clean` – cleans cache or temp files.
 - [x] `reap doctor` – performs basic health check and config audit.
+- [x] CLI integration for all GPG subcommands (import, show, verify, check)
+- [x] Tap-based source support (add/list remote AUR repos)
+- [x] Full CLI wiring for Flatpak backend (search, install, upgrade, audit)
+- [x] Implemented `handle_search()` and wired AUR search subcommand
+- [x] `reap doctor` now provides async config validation
 
 ---
 
@@ -31,11 +36,12 @@ Basic CLI functionality powered by `std::process::Command`:
 
 More control, fewer dependencies:
 
-- [ ] Drop reliance on any external AUR helpers (done)
+- [x] Flatpak backend CLI fully wired
+- [ ] Add interactive `--edit` and `--diff` for PKGBUILDs
+- [ ] Remove or finalize legacy `.deb` stubs
+- [ ] Move hooks to support Lua/custom external scripts (stretch)
 - [ ] Manual PKGBUILD retrieval from AUR
 - [ ] Makepkg integration: `makepkg -si` (**TODO**)
-- [ ] Support Flatpak as backend (implemented)
-- [ ] `.deb` backend temporarily removed
 - [ ] Dependency resolution and conflict detection
 - [ ] Interactive prompts: confirm removals, edit PKGBUILDs
 
@@ -46,10 +52,12 @@ More control, fewer dependencies:
 Modular design, performance improvements:
 
 - [ ] Pluggable backends (`reap --backend aur`, `--backend flatpak`) (**TODO**)
-- [ ] Caching: PKGBUILDs, metadata, search results
+- [ ] Caching system for AUR search results and PKGBUILDs (partial scaffolding exists)
 - [ ] Persistent config (TOML/YAML under `~/.config/reap`)
 - [ ] Logging and audit mode (`--log`, `--audit`)
 - [x] Async install queues with progress bars
+- [ ] Integrate `run_hook()` for user-defined lifecycle scripting (pre/post install)
+- [ ] Modular `utils::print_search_results()` across CLI and TUI
 
 ### 🔁 Rollback & Pinning
 
@@ -78,6 +86,8 @@ Built-in trust and transparency:
 - [ ] Audit for GPG trust level, optional deps (**TODO**)
 - [ ] Keyserver validation
 - [ ] Audit mode to show upstream changes
+- [ ] Async keyserver health check (`check_keyserver`)
+- [ ] Wire GPG fallback key import on missing sigs
 
 ---
 
@@ -90,6 +100,8 @@ Long-term exploration:
 - [ ] Reap script mode: install from JSON manifest
 - [ ] Headless mode for CI/CD systems
 - [ ] WASM-based sandboxing for PKGBUILD parsing
+- [ ] Lua scripting support for install hooks
+- [ ] PKGBUILD linting / schema validation
 
 ---
 
@@ -104,7 +116,7 @@ Long-term exploration:
 
 ## 📅 Status
 
-Current focus: **Post-MVP polish and implementing persistent features like pinning, rollback, and TUI interactivity.**
+Current focus: Final GPG integration, Flatpak/AUR parity, config polish, and search result caching. TUI will evolve next.
 
 ---
 

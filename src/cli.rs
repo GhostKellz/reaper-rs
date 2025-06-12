@@ -111,9 +111,6 @@ pub enum GpgCmd {
 
 #[derive(Subcommand, Debug)]
 pub enum TapCmd {
-    Add {
-        name: String,
-        url: String,
-    },
+    Add { name: String, url: String },
     List,
 }

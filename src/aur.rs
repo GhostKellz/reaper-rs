@@ -57,9 +57,7 @@ pub fn fetch_package_info(pkg: &str) -> Result<AurInfo, Box<dyn Error + Send + S
     let resp = client.get(&url).send()?;
     let aur_resp: AurResponse = resp.json()?;
     if let Some(r) = aur_resp.results.into_iter().next() {
-        Ok(AurInfo {
-            version: r.version,
-        })
+        Ok(AurInfo { version: r.version })
     } else {
         Err("Package not found".into())
     }
@@ -237,9 +235,7 @@ pub fn get_taps() -> HashMap<String, String> {
 
 pub async fn sync_db() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("[reap] Syncing package database (yay -Sy)...");
-    let status = Command::new("yay")
-        .arg("-Sy")
-        .status()?;
+    let status = Command::new("yay").arg("-Sy").status()?;
     if status.success() {
         println!("[reap] Database sync complete.");
     } else {
@@ -312,8 +308,8 @@ pub fn install_local(path: &str) {
 }
 
 pub fn get_outdated() -> Vec<String> {
-    use crate::pacman;
     use crate::aur::fetch_package_info;
+    use crate::pacman;
     let installed = pacman::list_installed_aur();
     let mut outdated = Vec::new();
     for pkg in installed {

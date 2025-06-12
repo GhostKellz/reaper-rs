@@ -5,13 +5,13 @@ use crate::backend::{AurBackend, Backend};
 use crate::cli::Cli;
 use crate::config::ReapConfig;
 use crate::flatpak;
-use crate::pacman;
-use crate::tui::LogPane;
-use crate::utils;
-use crate::tui;
-use crate::utils::{pkgb_diff_audit, audit_flatpak_manifest};
-use crate::tui::{setup_terminal, restore_terminal};
 use crate::gpg;
+use crate::pacman;
+use crate::tui;
+use crate::tui::LogPane;
+use crate::tui::{restore_terminal, setup_terminal};
+use crate::utils;
+use crate::utils::{audit_flatpak_manifest, pkgb_diff_audit};
 use futures::FutureExt;
 use futures::future::join_all;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -217,7 +217,9 @@ pub fn handle_install(pkgs: Vec<String>) {
     let backend: Box<dyn Backend> = Box::new(AurBackend::new());
     for pkg in pkgs {
         println!("[reap] Installing {}...", pkg);
-        tokio::runtime::Runtime::new().unwrap().block_on(backend.install(&pkg));
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(backend.install(&pkg));
     }
 }
 
@@ -362,18 +364,14 @@ pub async fn handle_cli(cli: &Cli) -> Result<(), Box<dyn std::error::Error + Sen
         Commands::Upgrade { parallel } => {
             handle_upgrade(*parallel);
         }
-        Commands::Pin { pkg } => {
-            match utils::pin_package(pkg) {
-                Ok(_) => println!("[reap] Pinned {}", pkg),
-                Err(e) => eprintln!("[reap] Pin failed for {}: {}", pkg, e),
-            }
-        }
-        Commands::Clean => {
-            match utils::clean_cache() {
-                Ok(msg) => println!("[reap] {}", msg),
-                Err(e) => eprintln!("[reap] Clean failed: {}", e),
-            }
-        }
+        Commands::Pin { pkg } => match utils::pin_package(pkg) {
+            Ok(_) => println!("[reap] Pinned {}", pkg),
+            Err(e) => eprintln!("[reap] Pin failed for {}: {}", pkg, e),
+        },
+        Commands::Clean => match utils::clean_cache() {
+            Ok(msg) => println!("[reap] {}", msg),
+            Err(e) => eprintln!("[reap] Clean failed: {}", e),
+        },
         Commands::Doctor => {
             utils::doctor_report().map_or_else(
                 |e| eprintln!("[reap doctor] Error: {}", e),

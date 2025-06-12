@@ -1,8 +1,8 @@
+use crate::aur;
+use crate::aur::SearchResult;
 use crate::config::ReapConfig;
 use crate::core;
 use crate::core::get_installed_packages;
-use crate::aur;
-use crate::aur::SearchResult;
 use crossterm::event::{self, Event, KeyCode};
 use mlua::Lua;
 use ratatui::prelude::{Constraint, Direction, Layout};
@@ -184,10 +184,10 @@ pub async fn launch_tui() {
 }
 
 pub async fn run_ui() {
-    use crossterm::{event, terminal};
-    use std::io::{stdout, Write};
-    use std::time::Duration;
     use crate::utils;
+    use crossterm::{event, terminal};
+    use std::io::{Write, stdout};
+    use std::time::Duration;
     let pkgs = get_installed_packages();
     let mut pinned = Vec::new();
     let mut selected = 0;
@@ -211,7 +211,11 @@ pub async fn run_ui() {
                 match key.code {
                     event::KeyCode::Char('q') => break,
                     event::KeyCode::Up => selected = selected.saturating_sub(1),
-                    event::KeyCode::Down => if selected + 1 < pkg_names.len() { selected += 1; },
+                    event::KeyCode::Down => {
+                        if selected + 1 < pkg_names.len() {
+                            selected += 1;
+                        }
+                    }
                     event::KeyCode::Char('p') => {
                         let pkg = &pkg_names[selected];
                         if !pinned.contains(pkg) {
