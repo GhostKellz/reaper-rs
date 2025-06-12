@@ -1,6 +1,7 @@
 use crate::aur;
 use crate::aur::SearchResult;
 use crate::aur::upgrade_all;
+use crate::aur::handle_search;
 use crate::backend::{AurBackend, Backend};
 use crate::cli::Cli;
 use crate::config::ReapConfig;
@@ -10,6 +11,9 @@ use crate::tui::LogPane;
 use crate::utils;
 use crate::hooks;
 use crate::tui;
+use crate::utils::{pkgb_diff_audit, audit_flatpak_manifest};
+use crate::tui::{setup_terminal, restore_terminal};
+use crate::gpg;
 use futures::FutureExt;
 use futures::future::join_all;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -304,11 +308,30 @@ pub fn handle_rollback(pkg: &str) {
 }
 
 pub fn handle_audit(pkg: &str) {
-    utils::audit_package(pkg);
+    match crate::core::detect_source(pkg) {
+        Some(crate::core::Source::Aur) => {
+            let pkgb = crate::aur::get_pkgbuild_preview(pkg);
+            pkgb_diff_audit(pkg, &pkgb);
+        }
+        Some(crate::core::Source::Flatpak) => {
+            let output = std::process::Command::new("flatpak")
+                .arg("info")
+                .arg(pkg)
+                .output();
+            if let Ok(out) = output {
+                audit_flatpak_manifest(&String::from_utf8_lossy(&out.stdout), None);
+            } else {
+                println!("[AUDIT][FLATPAK] Could not get info for {}.", pkg);
+            }
+        }
+        _ => println!("[AUDIT] Unknown package source for {}.", pkg),
+    }
 }
 
 pub async fn handle_tui() {
+    setup_terminal();
     crate::tui::launch_tui().await;
+    restore_terminal();
 }
 
 pub fn handle_doctor() {
@@ -350,15 +373,11 @@ pub fn handle_doctor() {
 
 /// Handle CLI commands based on the provided `Cli` struct
 pub async fn handle_cli(cli: &Cli) {
-    use crate::cli::Commands;
+    use crate::cli::{Commands, GpgCmd};
     match &cli.command {
         Commands::Install { pkgs } => {
-            for pkg in pkgs {
-                match aur::install(vec![pkg]).await {
-                    Ok(_) => println!("[reap] Installed {}", pkg),
-                    Err(e) => eprintln!("[reap] Install failed for {}: {:?}", pkg, e),
-                }
-            }
+            // Add parallel flag logic if needed
+            handle_install(pkgs.clone());
         }
         Commands::Remove { pkgs } => {
             for pkg in pkgs {
@@ -386,8 +405,7 @@ pub async fn handle_cli(cli: &Cli) {
             }
         }
         Commands::Audit { pkg } => {
-            crate::utils::audit_package(pkg);
-            println!("[reap] Audit complete for {}", pkg);
+            handle_audit(pkg);
         }
         Commands::Rollback { pkg } => {
             hooks::on_rollback(pkg);
@@ -400,10 +418,11 @@ pub async fn handle_cli(cli: &Cli) {
             }
         }
         Commands::Upgrade => {
-            match aur::upgrade_all().await {
-                Ok(_) => println!("[reap] Upgrade succeeded"),
-                Err(e) => eprintln!("[reap] Upgrade failed: {:?}", e),
-            }
+            // Example: parallel upgrade logic
+            let config = Arc::new(ReapConfig::load());
+            let pkgs = aur::get_outdated();
+            let log = None;
+            parallel_upgrade(pkgs, config, log).await;
         }
         Commands::Pin { pkg } => {
             match utils::pin_package(pkg) {
@@ -424,10 +443,18 @@ pub async fn handle_cli(cli: &Cli) {
             );
         }
         Commands::Tui => {
+            setup_terminal();
             tui::run_ui().await;
+            restore_terminal();
         }
         Commands::Gpg { cmd } => match cmd {
             GpgCmd::Refresh => gpg::refresh_keys(),
+            GpgCmd::Import { keyid } => {
+                tokio::runtime::Runtime::new().unwrap().block_on(gpg::import_gpg_key_async(keyid));
+            }
+            GpgCmd::Show { keyid } => {
+                tokio::runtime::Runtime::new().unwrap().block_on(gpg::show_gpg_key_info_async(keyid));
+            }
         },
     }
 }

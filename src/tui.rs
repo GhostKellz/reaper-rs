@@ -228,7 +228,7 @@ pub async fn run_ui() {
     println!("[reap TUI] Exited.");
 }
 
-fn setup_terminal() -> ratatui::Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>> {
+pub fn setup_terminal() -> ratatui::Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>> {
     use crossterm::execute;
     use crossterm::terminal::{EnterAlternateScreen, enable_raw_mode};
     use std::io::stdout;
@@ -238,7 +238,7 @@ fn setup_terminal() -> ratatui::Terminal<ratatui::backend::CrosstermBackend<std:
     ratatui::Terminal::new(backend).unwrap()
 }
 
-fn restore_terminal() {
+pub fn restore_terminal() {
     use crossterm::execute;
     use crossterm::terminal::{LeaveAlternateScreen, disable_raw_mode};
     use std::io::stdout;

@@ -82,4 +82,8 @@ pub enum Commands {
 pub enum GpgCmd {
     /// Refresh GPG keys
     Refresh,
+    /// Import a GPG key
+    Import { keyid: String },
+    /// Show details of a GPG key
+    Show { keyid: String },
 }

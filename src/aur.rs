@@ -384,3 +384,7 @@ pub fn get_outdated() -> Vec<String> {
     }
     outdated
 }
+
+pub async fn handle_search(_terms: &Vec<String>) {
+    println!("TODO: implement handle_search");
+}
