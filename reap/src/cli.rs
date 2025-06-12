@@ -25,7 +25,12 @@ pub struct Cli {
     pub syncdb: bool,
     #[arg(short = 'u', long = "upgradeall", help = "Upgrade all packages")] // -Su
     pub upgradeall: bool,
-    #[arg(short = 'S', long = "install", value_name = "PKG", help = "Install a package")]
+    #[arg(
+        short = 'S',
+        long = "install",
+        value_name = "PKG",
+        help = "Install a package"
+    )]
     pub install: Option<String>,
 }
 

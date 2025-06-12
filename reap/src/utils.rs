@@ -10,11 +10,12 @@ static PKGBUILD_CACHE: Lazy<Mutex<HashMap<String, String>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
 pub async fn async_get_pkgbuild_cached(pkg: &str) -> String {
-    let cache = PKGBUILD_CACHE.lock().unwrap();
-    if let Some(cached) = cache.get(pkg) {
-        return cached.clone();
+    {
+        let cache = PKGBUILD_CACHE.lock().unwrap();
+        if let Some(cached) = cache.get(pkg) {
+            return cached.clone();
+        }
     }
-    drop(cache);
     let url = format!(
         "https://aur.archlinux.org/cgit/aur.git/plain/PKGBUILD?h={}",
         pkg

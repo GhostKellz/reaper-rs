@@ -2,6 +2,8 @@ use crate::aur;
 use crate::aur::SearchResult;
 use crate::backend;
 use crate::backend::{AurBackend, Backend};
+use crate::cli::Cli;
+use crate::config::ReapConfig;
 use crate::flatpak;
 use crate::pacman;
 use crate::tui::LogPane;
@@ -9,13 +11,11 @@ use crate::{gpg, hooks};
 use futures::FutureExt;
 use futures::future::join_all;
 use indicatif::{ProgressBar, ProgressStyle};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
-use crate::cli::Cli;
-use crate::config::ReapConfig;
-use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Source {
@@ -76,7 +76,7 @@ pub async fn parallel_install(pkgs: &[&str]) {
     for &pkg in pkgs {
         let pkg = pkg.to_string();
         tasks.push(tokio::spawn(async move {
-            aur::install(vec![&pkg[..]]).await;
+            aur::install(vec![&pkg]).await;
             pkg
         }));
     }
@@ -84,17 +84,17 @@ pub async fn parallel_install(pkgs: &[&str]) {
     let mut failed = Vec::new();
     for res in results {
         match res {
-            Ok(pkg) => println!("{} Installed {}", "[reap]", pkg),
+            Ok(pkg) => println!("[reap] Installed {}", pkg),
             Err(e) => {
-                eprintln!("{} Install failed: {:?}", "[reap]", e);
+                eprintln!("[reap] Install failed: {:?}", e);
                 failed.push(e);
             }
         }
     }
     if !failed.is_empty() {
-        eprintln!("{} Some installs failed.", "[reap]");
+        eprintln!("[reap] Some installs failed.");
     } else {
-        println!("{} All installs complete.", "[reap]");
+        println!("[reap] All installs complete.");
     }
 }
 
@@ -109,7 +109,7 @@ pub async fn parallel_upgrade(
             let config = config.clone();
             let log = log.clone();
             tokio::spawn(async move {
-                install_with_priority(&pkg, &config);
+                install_with_priority(&pkg, &config).await;
                 if let Some(log) = log.as_ref() {
                     log.push(&format!("[reap] Upgraded {}", pkg));
                 } else {
@@ -136,13 +136,13 @@ pub async fn parallel_upgrade(
     }
 }
 
-pub fn install_with_priority(pkg: &str, _config: &ReapConfig) {
+pub async fn install_with_priority(pkg: &str, _config: &ReapConfig) {
     let priorities = vec![Source::Aur, Source::Pacman, Source::Flatpak];
     for src in priorities {
         match src {
             Source::Aur => {
                 if aur::aur_search_results(pkg).iter().any(|r| r.name == pkg) {
-                    aur::install(vec![&pkg[..]]);
+                    aur::install(vec![pkg]).await;
                     return;
                 }
             }
@@ -193,13 +193,11 @@ pub fn detect_source(pkg: &str) -> Option<Source> {
     }
 }
 
-pub fn install(pkg: &str) -> impl std::future::Future<Output = ()> + '_ {
-    async move {
-        match detect_source(pkg) {
-            Some(Source::Aur) => aur::install(vec![&pkg[..]]).await,
-            Some(Source::Flatpak) => async { flatpak::install_flatpak(pkg) }.await,
-            _ => async { eprintln!("[reap] Could not detect source for '{}'.", pkg) }.await,
-        }
+pub async fn install(pkg: &str) {
+    match detect_source(pkg) {
+        Some(Source::Aur) => aur::install(vec![pkg]).await,
+        Some(Source::Flatpak) => flatpak::install_flatpak(pkg),
+        _ => eprintln!("[reap] Could not detect source for '{}'.", pkg),
     }
 }
 
@@ -217,48 +215,28 @@ pub fn print_search_results(results: &[SearchResult]) {
 
 pub fn handle_install(pkgs: Vec<String>) {
     for pkg in pkgs {
-        println!("{} Installing {}...", "[reap]", pkg);
+        println!("[reap] Installing {}...", pkg);
         let info = aur::fetch_package_info(&pkg);
         if info.is_err() {
-            eprintln!(
-                "{} Package '{}' not found in AUR.",
-                "[reap]",
-                pkg
-            );
+            eprintln!("[reap] Package '{}' not found in AUR.", pkg);
             continue;
         }
         let tmp_dir = std::env::temp_dir().join(format!("reap-aur-{}", pkg));
         let _ = std::fs::remove_dir_all(&tmp_dir);
         if !aur::clone_repo(&pkg, &tmp_dir) {
-            eprintln!(
-                "{} Failed to clone repo for {}",
-                "[reap]",
-                pkg
-            );
+            eprintln!("[reap] Failed to clone repo for {}", pkg);
             continue;
         }
         if !gpg::verify_pkgbuild(&tmp_dir) {
-            eprintln!(
-                "{} PKGBUILD verification failed for {}",
-                "[reap]",
-                pkg
-            );
+            eprintln!("[reap] PKGBUILD verification failed for {}", pkg);
             continue;
         }
         if let Err(e) = backend::build_and_install(&tmp_dir) {
-            eprintln!(
-                "{} Failed to build {}: {e}",
-                "[reap]",
-                pkg
-            );
+            eprintln!("[reap] Failed to build {}: {e}", pkg);
             continue;
         }
         hooks::on_install(&pkg);
-        println!(
-            "{} Installed {}.",
-            "[reap]",
-            pkg
-        );
+        println!("[reap] Installed {}.", pkg);
     }
 }
 
@@ -284,12 +262,7 @@ pub async fn handle_install_parallel(pkgs: Vec<String>, max_parallel: usize) {
             .catch_unwind()
             .await
             {
-                pb.println(format!(
-                    "{} {}: {:?}",
-                    "❌",
-                    pkg,
-                    e
-                ));
+                pb.println(format!("{} {}: {:?}", "❌", pkg, e));
             } else {
                 pb.println(format!("{} {}", "✔", pkg));
             }
@@ -300,11 +273,11 @@ pub async fn handle_install_parallel(pkgs: Vec<String>, max_parallel: usize) {
     let results = join_all(handles).await;
     for result in results {
         if let Err(e) = result {
-            eprintln!("{} Failed: {e}", "❌");
+            eprintln!("[reap] Failed: {e}");
         }
     }
     pb.finish_with_message("All installs complete.");
-    println!("{} All installs complete.", "✔");
+    println!("[reap] All installs complete.");
 }
 
 pub async fn handle_search(query: String) {
@@ -393,33 +366,14 @@ pub fn handle_doctor() {
         .unwrap_or(false);
     println!("[reap doctor] System diagnostics:");
     for (_, label, ok) in &checks {
-        println!(
-            "{} {}",
-            if *ok {
-                "✔"
-            } else {
-                "✗"
-            },
-            label
-        );
+        println!("{} {}", if *ok { "✔" } else { "✗" }, label);
     }
     println!(
         "{} Config file: {}",
-        if config_ok {
-            "✔"
-        } else {
-            "✗"
-        },
+        if config_ok { "✔" } else { "✗" },
         config_path.display()
     );
-    println!(
-        "{} AUR network access",
-        if aur_ok {
-            "✔"
-        } else {
-            "✗"
-        }
-    );
+    println!("{} AUR network access", if aur_ok { "✔" } else { "✗" });
 }
 
 pub fn handle_pin(_pkg: String) {
@@ -442,7 +396,7 @@ pub fn handle_gpg_refresh() {
 pub async fn handle_cli(cli: &Cli) {
     if let Some(pkgs_str) = &cli.install {
         for pkg in pkgs_str.split_whitespace() {
-            aur::install(vec![&pkg[..]]);
+            aur::install(vec![pkg]).await;
         }
     }
 

@@ -1,7 +1,7 @@
 use crate::aur;
 use crate::aur::SearchResult;
-use crate::core;
 use crate::config::ReapConfig;
+use crate::core;
 use crossterm::event::{self, Event, KeyCode};
 use mlua::Lua;
 use ratatui::prelude::{Constraint, Direction, Layout};
@@ -31,6 +31,12 @@ impl LogPane {
     pub fn clear(&self) {
         let mut lines = self.lines.lock().unwrap();
         lines.clear();
+    }
+}
+
+impl Default for LogPane {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -108,14 +114,19 @@ pub async fn launch_tui() {
                     KeyCode::Char(c) => match c {
                         'i' => {
                             // Parallel install selected packages
-                            let pkgs: Vec<String> = results.iter().map(|r| r.name.clone()).collect();
+                            let pkgs: Vec<String> =
+                                results.iter().map(|r| r.name.clone()).collect();
                             tokio::spawn(async move {
-                                core::parallel_install(&pkgs.iter().map(|s| s.as_str()).collect::<Vec<&str>>()).await;
+                                core::parallel_install(
+                                    &pkgs.iter().map(|s| s.as_str()).collect::<Vec<&str>>(),
+                                )
+                                .await;
                             });
                         }
                         'u' => {
                             // Parallel upgrade all packages
-                            let pkgs: Vec<String> = results.iter().map(|r| r.name.clone()).collect();
+                            let pkgs: Vec<String> =
+                                results.iter().map(|r| r.name.clone()).collect();
                             let _config = Arc::new(ReapConfig::load());
                             let _log = log_pane.clone();
                             tokio::spawn(async move {
@@ -135,12 +146,8 @@ pub async fn launch_tui() {
                         }
                     },
                     KeyCode::Up => {
-                        if selected > 0 {
-                            selected -= 1;
-                        }
-                        if log_scroll > 0 {
-                            log_scroll -= 1;
-                        }
+                        selected = selected.saturating_sub(1);
+                        log_scroll = log_scroll.saturating_sub(1);
                     }
                     KeyCode::Down => {
                         if selected + 1 < results.len() {

@@ -1,16 +1,16 @@
 use crate::utils;
+use futures::future::join_all;
 use once_cell::sync::Lazy;
+use owo_colors::OwoColorize;
 use reqwest::blocking::Client;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs;
 use std::path::PathBuf;
+use std::process::Command;
 use std::sync::Mutex;
 use std::sync::mpsc;
-use std::process::Command;
-use futures::future::join_all;
-use owo_colors::OwoColorize;
 
 static TAP_REPOS: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| {
     let mut map = HashMap::new();
@@ -113,17 +113,17 @@ pub fn aur_search_results(query: &str) -> Vec<AurResult> {
     vec![]
 }
 
-fn prompt_confirm(msg: &str) -> bool {
-    use std::io::{self, Write};
-    print!("{} [y/N]: ", msg);
-    let _ = io::stdout().flush();
-    let mut input = String::new();
-    if io::stdin().read_line(&mut input).is_ok() {
-        matches!(input.trim().to_lowercase().as_str(), "y" | "yes")
-    } else {
-        false
-    }
-}
+// fn prompt_confirm(msg: &str) -> bool {
+//     use std::io::{self, Write};
+//     print!("{} [y/N]: ", msg);
+//     let _ = io::stdout().flush();
+//     let mut input = String::new();
+//     if io::stdin().read_line(&mut input).is_ok() {
+//         matches!(input.trim().to_lowercase().as_str(), "y" | "yes")
+//     } else {
+//         false
+//     }
+// }
 
 pub async fn install(pkgs: Vec<&str>) {
     let yay = which::which("yay").is_ok();
@@ -240,10 +240,7 @@ pub fn get_deps(pkg: &str) -> Vec<String> {
 
 pub async fn upgrade() {
     println!("[reap] Upgrading system packages...");
-    let _ = Command::new("sudo")
-        .arg("pacman")
-        .arg("-Syu")
-        .status();
+    let _ = Command::new("sudo").arg("pacman").arg("-Syu").status();
     let output = Command::new("pacman").arg("-Qm").output();
     if let Ok(out) = output {
         let pkgs = String::from_utf8_lossy(&out.stdout);
@@ -321,10 +318,16 @@ pub fn install_local(path: &str) {
     }
     let ext = file.extension().and_then(|e| e.to_str()).unwrap_or("");
     if !(ext == "zst" || path.ends_with(".pkg.tar.zst")) {
-        println!("[reap] Local package file must be a .zst or .pkg.tar.zst: {}", path.yellow());
+        println!(
+            "[reap] Local package file must be a .zst or .pkg.tar.zst: {}",
+            path.yellow()
+        );
         return;
     }
-    println!("[reap] Installing local package from {} (sudo pacman -U)...", path.yellow());
+    println!(
+        "[reap] Installing local package from {} (sudo pacman -U)...",
+        path.yellow()
+    );
     let status = Command::new("sudo")
         .arg("pacman")
         .arg("-U")
