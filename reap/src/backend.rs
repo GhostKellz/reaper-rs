@@ -36,6 +36,11 @@ impl AurBackend {
         AurBackend
     }
 }
+impl Default for AurBackend {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 #[async_trait]
 impl Backend for AurBackend {
@@ -132,6 +137,11 @@ pub struct FlatpakBackend;
 impl FlatpakBackend {
     pub fn new() -> Self {
         FlatpakBackend
+    }
+}
+impl Default for FlatpakBackend {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
