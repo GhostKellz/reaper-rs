@@ -1,7 +1,18 @@
 use crate::utils;
+use reqwest::blocking::Client;
+use serde::Deserialize;
+use std::error::Error;
 use std::sync::mpsc;
 
-#[derive(Clone, Debug, serde::Deserialize)]
+#[derive(Debug, Clone)]
+pub struct SearchResult {
+    pub name: String,
+    pub version: String,
+    pub description: String,
+    pub source: crate::core::Source,
+}
+
+#[derive(Clone, Debug, Deserialize)]
 pub struct AurResult {
     #[serde(rename = "Name")]
     pub name: String,
@@ -16,21 +27,49 @@ pub struct AurResult {
     pub url: Option<String>,
 }
 
-#[derive(Clone, Debug, serde::Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct AurResponse {
     pub results: Vec<AurResult>,
 }
 
-pub fn search(query: &str) {
-    let results = aur_search_results(query);
-    for result in results {
-        let desc = result.description.as_deref().unwrap_or("");
-        let maint = result.maintainer.as_deref().unwrap_or("");
-        println!(
-            "[reap] AUR :: {} {} {} - {}",
-            result.name, result.version, maint, desc
-        );
+pub struct AurInfo {
+    pub name: String,
+    pub version: String,
+    pub description: Option<String>,
+}
+
+pub fn fetch_package_info(pkg: &str) -> Result<AurInfo, Box<dyn Error + Send + Sync>> {
+    let url = format!("https://aur.archlinux.org/rpc/?v=5&type=info&arg[]={}", pkg);
+    let client = Client::new();
+    let resp = client.get(&url).send()?;
+    let aur_resp: AurResponse = resp.json()?;
+    if let Some(r) = aur_resp.results.into_iter().next() {
+        Ok(AurInfo {
+            name: r.name,
+            version: r.version,
+            description: r.description,
+        })
+    } else {
+        Err("Package not found".into())
     }
+}
+
+pub fn clone_repo(_pkg: &str, _dest: &std::path::Path) -> bool {
+    // TODO: Implement real clone logic
+    true
+}
+
+pub async fn search(query: &str) -> Result<Vec<SearchResult>, Box<dyn Error + Send + Sync>> {
+    let url = format!("https://aur.archlinux.org/rpc/?v=5&type=search&arg={}", query);
+    let client = reqwest::Client::new();
+    let resp = client.get(&url).send().await?;
+    let aur_resp: AurResponse = resp.json().await?;
+    Ok(aur_resp.results.into_iter().map(|r| SearchResult {
+        name: r.name,
+        version: r.version,
+        description: r.description.unwrap_or_default(),
+        source: crate::core::Source::Aur,
+    }).collect())
 }
 
 pub fn aur_search_results(query: &str) -> Vec<AurResult> {

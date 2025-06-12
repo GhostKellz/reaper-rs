@@ -14,17 +14,12 @@ pub fn search(query: &str) {
 }
 // Example usage: call flatpak::search from CLI or TUI for Flatpak search
 
-pub fn install(package: &str) {
-    println!("[reap] flatpak :: Installing: {}", package);
-    let status = Command::new("flatpak")
+pub fn install(pkg: &str) {
+    let _ = Command::new("flatpak")
         .arg("install")
         .arg("-y")
-        .arg(package)
+        .arg(pkg)
         .status();
-    match status {
-        Ok(s) if s.success() => println!("[reap] flatpak :: {} installed successfully!", package),
-        Ok(_) | Err(_) => println!("[reap] flatpak :: install failed for {}", package),
-    }
 }
 
 pub fn upgrade() {

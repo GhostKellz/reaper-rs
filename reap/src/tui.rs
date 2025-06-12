@@ -1,12 +1,11 @@
 use crate::core;
-use crate::utils::async_get_pkgbuild_cached;
+use crate::aur;
+use crate::aur::SearchResult;
 use crossterm::event::{self, Event, KeyCode};
 use mlua::Lua;
 use ratatui::prelude::{Constraint, Direction, Layout};
-use ratatui::style::{Color, Style};
-use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
+use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, ListState};
 use std::sync::{Arc, Mutex};
-use tokio::runtime::Runtime;
 
 struct LogPane {
     lines: Arc<Mutex<Vec<String>>>,
@@ -49,166 +48,66 @@ fn run_lua_hook(hook: &str, pkg: &str) {
     }
 }
 
-pub fn run() {
-    let rt = Runtime::new().unwrap();
+pub async fn launch_tui() {
     let mut terminal = setup_terminal();
-    let mut query = prompt_for_query();
-    let results_future = core::unified_search(&query);
-    let mut results = rt.block_on(results_future);
-    let mut selected: usize = 0;
-    let mut status = String::new();
-    let config = crate::config::ReapConfig::load();
-    let mut show_details = false;
-    let mut selected_pkgs = vec![];
-    let mut pkgb_preview = String::new();
-    let mut show_help = false;
-    let mut show_log = false;
-    let log_pane = LogPane::new();
-    let help_text = "[reap TUI]\n/ search | d details | space select | enter install | l log | h help | c clear log | q quit";
-
+    let mut query = String::new();
+    let mut results = Vec::new();
+    let mut selected = 0usize;
+    let mut preview = String::new();
     loop {
-        terminal
-            .draw(|f| {
-                let size = f.size();
-                let chunks = Layout::default()
-                    .direction(Direction::Vertical)
-                    .margin(0)
-                    .constraints([Constraint::Min(10), Constraint::Length(7)])
-                    .split(size);
-                let block = Block::default()
-                    .title("reap unified search")
-                    .borders(Borders::ALL);
-                let items: Vec<ListItem> = results
-                    .iter()
-                    .enumerate()
-                    .map(|(i, r)| {
-                        let color = match r.source.label() {
-                            "[AUR]" => Color::Yellow,
-                            "[ChaoticAUR]" => Color::Magenta,
-                            "[Flatpak]" => Color::Cyan,
-                            _ => Color::White,
-                        };
-                        let style = if i == selected {
-                            Style::default().fg(Color::Black).bg(Color::White)
-                        } else {
-                            Style::default().fg(color)
-                        };
-                        let prefix = if selected_pkgs.contains(&i) {
-                            "[*] "
-                        } else {
-                            "    "
-                        };
-                        ListItem::new(format!(
-                            "{}{} {} {} - {}",
-                            prefix,
-                            r.source.label(),
-                            r.name,
-                            r.version,
-                            r.description
-                        ))
-                        .style(style)
-                    })
-                    .collect();
-                let list = List::new(items).block(block).highlight_symbol("▶ ");
-                f.render_widget(list, chunks[0]);
-                let mut details = String::new();
-                if show_details {
-                    if let Some(pkg) = results.get(selected) {
-                        if pkg.source == core::Source::Aur {
-                            details = pkgb_preview.clone();
-                            details.push_str("\n[Deps]: ");
-                            details.push_str(&format!("{:?}", crate::aur::get_deps(&pkg.name)));
-                        } else {
-                            details = format!("No PKGBUILD for {}", pkg.name);
-                        }
-                    }
-                }
-                let log_lines = log_pane.get().join("\n");
-                let status_p = Paragraph::new(if show_help {
-                    help_text.into()
-                } else if show_log {
-                    log_lines
-                } else {
-                    status.clone() + "\n" + &details
-                })
-                .block(
-                    Block::default().borders(Borders::ALL).title(if show_log {
-                        "Log"
-                    } else {
-                        "Status/Details"
-                    }),
-                );
-                f.render_widget(status_p, chunks[1]);
-            })
-            .unwrap();
-
-        if event::poll(std::time::Duration::from_millis(200)).unwrap() {
+        terminal.draw(|f| {
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(3),
+                    Constraint::Min(5),
+                    Constraint::Length(7),
+                ])
+                .split(f.size());
+            let search = Paragraph::new(query.as_str())
+                .block(Block::default().borders(Borders::ALL).title("Search"));
+            f.render_widget(search, chunks[0]);
+            let items: Vec<ListItem> = results.iter().map(|r: &SearchResult| {
+                ListItem::new(format!("{} {} - {}", r.name, r.version, r.description.as_str()))
+            }).collect();
+            let list = List::new(items)
+                .block(Block::default().borders(Borders::ALL).title("Results"))
+                .highlight_symbol("→ ");
+            let mut state = ListState::default();
+            state.select(Some(selected));
+            f.render_stateful_widget(list, chunks[1], &mut state);
+            let preview_box = Paragraph::new(preview.as_str())
+                .block(Block::default().borders(Borders::ALL).title("Preview"));
+            f.render_widget(preview_box, chunks[2]);
+        }).unwrap();
+        if crossterm::event::poll(std::time::Duration::from_millis(100)).unwrap() {
             if let Event::Key(key) = event::read().unwrap() {
                 match key.code {
-                    KeyCode::Char('q') => break,
+                    KeyCode::Char('q') | KeyCode::Esc => break,
                     KeyCode::Char('/') => {
-                        query = prompt_for_query();
-                        results = rt.block_on(core::unified_search(&query));
-                        selected = 0;
+                        query.clear();
                     }
-                    KeyCode::Down => {
-                        if selected + 1 < results.len() {
-                            selected += 1;
-                        }
+                    KeyCode::Char(c) => {
+                        query.push(c);
+                        results = aur::search(&query).await.unwrap_or_default();
+                        selected = 0;
+                        preview.clear();
                     }
                     KeyCode::Up => {
-                        selected = selected.saturating_sub(1);
+                        if selected > 0 { selected -= 1; }
                     }
-                    KeyCode::Char(' ') => {
-                        if selected_pkgs.contains(&selected) {
-                            selected_pkgs.retain(|&x| x != selected);
-                        } else {
-                            selected_pkgs.push(selected);
-                        }
-                    }
-                    KeyCode::Char('d') => {
-                        show_details = !show_details;
-                        if show_details {
-                            if let Some(pkg) = results.get(selected) {
-                                if pkg.source == core::Source::Aur {
-                                    pkgb_preview = rt.block_on(async_get_pkgbuild_cached(&pkg.name));
-                                }
-                            }
-                        }
-                    }
-                    KeyCode::Char('h') => {
-                        show_help = !show_help;
-                    }
-                    KeyCode::Char('l') => {
-                        show_log = !show_log;
-                    }
-                    KeyCode::Char('c') => {
-                        log_pane.clear();
+                    KeyCode::Down => {
+                        if selected + 1 < results.len() { selected += 1; }
                     }
                     KeyCode::Enter => {
-                        let to_install: Vec<String> = if selected_pkgs.is_empty() {
-                            results
-                                .get(selected)
-                                .map(|p| p.name.clone())
-                                .into_iter()
-                                .collect()
-                        } else {
-                            selected_pkgs
-                                .iter()
-                                .filter_map(|&i| results.get(i).map(|p| p.name.clone()))
-                                .collect()
-                        };
-                        for pkg in &to_install {
-                            run_lua_hook("pre_install", pkg);
-                            status = format!("Installing {}...", pkg);
-                            log_pane.push(&status);
-                            core::install_with_priority(pkg, &config);
-                            run_lua_hook("post_install", pkg);
-                            let done = format!("[reap] {} install complete.", pkg);
-                            log_pane.push(&done);
-                            status = done;
+                        if let Some(pkg) = results.get(selected) {
+                            core::handle_install(vec![pkg.name.clone()]);
                         }
-                        selected_pkgs.clear();
+                    }
+                    KeyCode::Tab => {
+                        if let Some(pkg) = results.get(selected) {
+                            preview = aur::get_pkgbuild_preview(&pkg.name);
+                        }
                     }
                     _ => {}
                 }
@@ -216,15 +115,6 @@ pub fn run() {
         }
     }
     restore_terminal();
-}
-
-fn prompt_for_query() -> String {
-    use std::io::{self, Write};
-    print!("Search: ");
-    io::stdout().flush().unwrap();
-    let mut query = String::new();
-    io::stdin().read_line(&mut query).unwrap();
-    query.trim().to_string()
 }
 
 fn setup_terminal() -> ratatui::Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>> {

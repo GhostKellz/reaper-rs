@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 use once_cell::sync::Lazy;
-use crate::core::SearchResult;
+use crate::aur::SearchResult;
 use std::path::Path;
 use diff::lines;
 use std::fs;

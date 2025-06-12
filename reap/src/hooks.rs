@@ -21,3 +21,11 @@ pub fn run_hook(hook: &str, pkg: &str) {
         }
     }
 }
+
+pub fn on_install(_pkg: &str) {
+    // TODO: Implement real install hook
+}
+
+pub fn on_rollback(_pkg: &str) {
+    // TODO: Implement real rollback hook
+}

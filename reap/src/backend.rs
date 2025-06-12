@@ -1,21 +1,39 @@
+use std::path::Path;
+use std::process::Command;
+use std::error::Error;
+use futures::FutureExt;
+use crate::aur::SearchResult;
+
 pub trait Backend {
     fn name(&self) -> &'static str;
     fn is_available(&self) -> bool;
-    fn search(&self, query: &str) -> Vec<crate::core::SearchResult>;
+    fn search(&self, query: &str) -> Vec<SearchResult>;
     fn install(&self, package: &str);
     fn upgrade(&self);
     fn audit(&self, package: &str);
     fn gpg_check(&self, package: &str);
 }
 
+pub fn build_and_install(pkgdir: &Path) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let status = Command::new("makepkg")
+        .arg("-si")
+        .arg("--noconfirm")
+        .current_dir(pkgdir)
+        .status()?;
+    if !status.success() {
+        return Err("makepkg failed".into());
+    }
+    Ok(())
+}
+
 pub struct AurBackend;
 impl Backend for AurBackend {
     fn name(&self) -> &'static str { "AUR" }
     fn is_available(&self) -> bool { true }
-    fn search(&self, query: &str) -> Vec<crate::core::SearchResult> {
+    fn search(&self, query: &str) -> Vec<SearchResult> {
         crate::aur::aur_search_results(query)
             .into_iter()
-            .map(|r| crate::core::SearchResult {
+            .map(|r| SearchResult {
                 name: r.name,
                 version: r.version,
                 description: r.description.unwrap_or_default(),
@@ -38,7 +56,7 @@ impl Backend for PacmanBackend {
     fn is_available(&self) -> bool {
         std::process::Command::new("which").arg("pacman").output().map(|o| o.status.success()).unwrap_or(false)
     }
-    fn search(&self, query: &str) -> Vec<crate::core::SearchResult> {
+    fn search(&self, query: &str) -> Vec<SearchResult> {
         crate::core::unified_search(query)
             .now_or_never()
             .unwrap_or_default()
@@ -62,7 +80,7 @@ impl Backend for FlatpakBackend {
     fn is_available(&self) -> bool {
         std::process::Command::new("which").arg("flatpak").output().map(|o| o.status.success()).unwrap_or(false)
     }
-    fn search(&self, query: &str) -> Vec<crate::core::SearchResult> {
+    fn search(&self, query: &str) -> Vec<SearchResult> {
         crate::core::unified_search(query)
             .now_or_never()
             .unwrap_or_default()
@@ -86,7 +104,7 @@ impl Backend for AptBackend {
     fn is_available(&self) -> bool {
         std::process::Command::new("which").arg("apt").output().map(|o| o.status.success()).unwrap_or(false)
     }
-    fn search(&self, query: &str) -> Vec<crate::core::SearchResult> {
+    fn search(&self, query: &str) -> Vec<SearchResult> {
         let output = std::process::Command::new("apt-cache").arg("search").arg(query).output();
         let mut results = Vec::new();
         if let Ok(out) = output {
@@ -95,7 +113,7 @@ impl Backend for AptBackend {
                 let mut parts = line.splitn(2, ' ');
                 if let Some(name) = parts.next() {
                     let desc = parts.next().unwrap_or("").trim().to_string();
-                    results.push(crate::core::SearchResult {
+                    results.push(SearchResult {
                         name: name.to_string(),
                         version: String::from("?"),
                         description: desc,

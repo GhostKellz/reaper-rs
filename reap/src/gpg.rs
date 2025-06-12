@@ -1,5 +1,6 @@
 use tokio::process::Command as TokioCommand;
 use std::process::Command;
+use std::path::Path;
 
 /// Import a GPG key from multiple keyservers (sync)
 pub fn import_gpg_key(keyid: &str) {
@@ -35,6 +36,41 @@ pub fn show_gpg_key_info(keyid: &str) {
                     println!("[reap] gpg :: Key trust: {} Expiry: {}", fields[1], fields[6]);
                 }
             }
+        }
+    }
+}
+
+/// Verify PKGBUILD signature in a directory
+pub fn verify_pkgbuild(pkgdir: &Path) -> bool {
+    let sig_path = pkgdir.join("PKGBUILD.sig");
+    let pkgb_path = pkgdir.join("PKGBUILD");
+    if !sig_path.exists() || !pkgb_path.exists() {
+        eprintln!("[reap] gpg :: PKGBUILD or signature missing");
+        return false;
+    }
+    let status = Command::new("gpg")
+        .arg("--verify")
+        .arg(sig_path)
+        .arg(pkgb_path)
+        .status();
+    if let Ok(s) = status {
+        if s.success() {
+            println!("[reap] gpg :: PKGBUILD signature verified");
+            return true;
+        }
+    }
+    eprintln!("[reap] gpg :: PKGBUILD signature verification failed");
+    false
+}
+
+/// Refresh all GPG keys
+pub fn refresh_keys() {
+    let status = Command::new("gpg").arg("--refresh-keys").status();
+    if let Ok(s) = status {
+        if s.success() {
+            println!("[reap] gpg :: Refreshed all keys");
+        } else {
+            eprintln!("[reap] gpg :: Failed to refresh keys");
         }
     }
 }
