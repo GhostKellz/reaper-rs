@@ -76,6 +76,11 @@ pub enum Commands {
         #[command(subcommand)]
         cmd: GpgCmd,
     },
+    /// Flatpak commands
+    Flatpak {
+        #[command(subcommand)]
+        cmd: FlatpakCmd,
+    },
 }
 
 #[derive(Subcommand, Debug)]
