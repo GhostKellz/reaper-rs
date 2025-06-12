@@ -22,7 +22,29 @@ pub fn install(pkg: &str) {
         .status();
 }
 
+pub fn install_flatpak(pkg: &str) {
+    println!("[reap] flatpak :: Installing {}...", pkg);
+    let status = Command::new("flatpak")
+        .arg("install")
+        .arg("-y")
+        .arg(pkg)
+        .status();
+    match status {
+        Ok(s) if s.success() => println!("[reap] flatpak :: Installed {}!", pkg),
+        Ok(_) | Err(_) => eprintln!("[reap] flatpak :: install failed for {}", pkg),
+    }
+}
+
 pub fn upgrade() {
+    println!("[reap] flatpak :: Upgrading all flatpak packages...");
+    let status = Command::new("flatpak").arg("update").arg("-y").status();
+    match status {
+        Ok(s) if s.success() => println!("[reap] flatpak :: All packages upgraded!"),
+        Ok(_) | Err(_) => println!("[reap] flatpak :: upgrade failed."),
+    }
+}
+
+pub fn upgrade_flatpak() {
     println!("[reap] flatpak :: Upgrading all flatpak packages...");
     let status = Command::new("flatpak").arg("update").arg("-y").status();
     match status {

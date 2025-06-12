@@ -108,22 +108,18 @@ pub async fn launch_tui() {
                     KeyCode::Char(c) => match c {
                         'i' => {
                             // Parallel install selected packages
-                            let pkgs: Vec<String> =
-                                results.iter().map(|r| r.name.clone()).collect();
-                            let config = Arc::new(ReapConfig::load());
-                            let log = log_pane.clone();
+                            let pkgs: Vec<String> = results.iter().map(|r| r.name.clone()).collect();
                             tokio::spawn(async move {
-                                core::parallel_install(pkgs, config, Some(log)).await;
+                                core::parallel_install(&pkgs.iter().map(|s| s.as_str()).collect::<Vec<&str>>()).await;
                             });
                         }
                         'u' => {
                             // Parallel upgrade all packages
-                            let pkgs: Vec<String> =
-                                results.iter().map(|r| r.name.clone()).collect();
-                            let config = Arc::new(ReapConfig::load());
-                            let log = log_pane.clone();
+                            let pkgs: Vec<String> = results.iter().map(|r| r.name.clone()).collect();
+                            let _config = Arc::new(ReapConfig::load());
+                            let _log = log_pane.clone();
                             tokio::spawn(async move {
-                                core::parallel_upgrade(pkgs, config, Some(log)).await;
+                                core::parallel_upgrade(pkgs, _config, Some(_log)).await;
                             });
                         }
                         _ => {

@@ -137,3 +137,33 @@ pub async fn check_key(keyid: &str) {
         println!("[reap] gpg :: Failed to check GPG key {}.", keyid);
     }
 }
+
+/// Check PKGBUILD signature in a directory
+pub fn gpg_check(pkgdir: &Path) -> Result<(), String> {
+    let sig_path = pkgdir.join("PKGBUILD.sig");
+    let pkgb_path = pkgdir.join("PKGBUILD");
+    if !sig_path.exists() || !pkgb_path.exists() {
+        eprintln!("[reap] gpg :: PKGBUILD or signature missing in {}", pkgdir.display());
+        return Err("Signature or PKGBUILD missing".to_string());
+    }
+    let output = Command::new("gpg")
+        .arg("--verify")
+        .arg(&sig_path)
+        .arg(&pkgb_path)
+        .output();
+    match output {
+        Ok(out) if out.status.success() => {
+            println!("[reap] gpg :: PKGBUILD signature verified for {}", pkgdir.display());
+            Ok(())
+        }
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            eprintln!("[reap] gpg :: PKGBUILD signature verification failed for {}: {}", pkgdir.display(), stderr.trim());
+            Err(stderr.trim().to_string())
+        }
+        Err(e) => {
+            eprintln!("[reap] gpg :: Error running gpg --verify for {}: {}", pkgdir.display(), e);
+            Err(e.to_string())
+        }
+    }
+}

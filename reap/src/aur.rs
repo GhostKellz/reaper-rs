@@ -9,6 +9,8 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::sync::mpsc;
 use std::process::Command;
+use futures::future::join_all;
+use owo_colors::OwoColorize;
 
 static TAP_REPOS: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| {
     let mut map = HashMap::new();
@@ -123,44 +125,69 @@ fn prompt_confirm(msg: &str) -> bool {
     }
 }
 
-pub fn install(package: &str) {
-    if !prompt_confirm(&format!("Install AUR package {}?", package)) {
-        println!("[reap] Skipped install for {}", package);
-        return;
+pub async fn install(pkgs: Vec<&str>) {
+    let yay = which::which("yay").is_ok();
+    let bin = if yay { "yay" } else { "pacman" };
+    println!("[reap] Installing packages: {:?} ({} -S)...", pkgs, bin);
+    let mut tasks = Vec::new();
+    for &package in &pkgs {
+        let bin = bin.to_string();
+        let pkg = package.to_string();
+        tasks.push(tokio::spawn(async move {
+            let deps = get_deps(&pkg);
+            if !deps.is_empty() {
+                eprintln!("[reap] Dependencies for {}: {:?}", pkg.yellow(), deps);
+                for dep in &deps {
+                    if !crate::pacman::is_installed(dep) {
+                        println!("[reap] Installing missing dependency: {}", dep.yellow());
+                        let status = std::process::Command::new(&bin)
+                            .arg("-S")
+                            .arg(dep)
+                            .status()
+                            .expect("Failed to run -S <dep>");
+                        if status.success() {
+                            println!("[reap] Installed dependency: {}", dep.green());
+                        } else {
+                            eprintln!("[reap] Failed to install dependency: {}", dep.red());
+                        }
+                    } else {
+                        println!("[reap] Dependency already installed: {}", dep.green());
+                    }
+                }
+            } else {
+                println!("[reap] No dependencies found for {}.", pkg);
+            }
+            let status = std::process::Command::new(&bin)
+                .arg("-S")
+                .arg(&pkg)
+                .status()
+                .expect("Failed to run -S <pkg>");
+            (pkg, status.success())
+        }));
     }
-    let aur_url = format!("https://aur.archlinux.org/{}.git", package);
-    let tmp_dir = std::env::temp_dir().join(format!("reap-aur-{}", package));
-    let _ = std::fs::remove_dir_all(&tmp_dir);
-    let status = std::process::Command::new("git")
-        .arg("clone")
-        .arg(&aur_url)
-        .arg(&tmp_dir)
-        .status();
-    if !status.map(|s| s.success()).unwrap_or(false) {
-        eprintln!("[reap] Failed to clone AUR repo for {}", package);
-        return;
+    let results = join_all(tasks).await;
+    for res in results {
+        match res {
+            Ok((pkg, true)) => println!("[reap] Installed {}.", pkg.green()),
+            Ok((pkg, false)) => eprintln!("[reap] Install failed for {}.", pkg.red()),
+            Err(e) => eprintln!("[reap] Task join error: {}", e),
+        }
     }
-    let status = std::process::Command::new("makepkg")
-        .current_dir(&tmp_dir)
-        .arg("-si")
-        .arg("--noconfirm")
-        .status();
-    if !status.map(|s| s.success()).unwrap_or(false) {
-        eprintln!("[reap] makepkg failed for {}", package);
-    }
-    let _ = std::fs::remove_dir_all(&tmp_dir);
 }
 
 pub fn uninstall(package: &str) {
-    let output = Command::new("yay")
-        .arg("-Rns")
+    let yay = which::which("yay").is_ok();
+    let bin = if yay { "yay" } else { "pacman" };
+    println!("[reap] Uninstalling {} ({} -R)...", package.yellow(), bin);
+    let status = Command::new(bin)
+        .arg("-R")
         .arg(package)
-        .output()
-        .expect("Failed to uninstall package");
-    if !output.status.success() {
-        eprintln!("Error uninstalling package: {:?}", output);
+        .status()
+        .expect("Failed to run -R <pkg>");
+    if status.success() {
+        println!("[reap] Uninstalled {}.", package.green());
     } else {
-        println!("Uninstalled package: {}", package);
+        eprintln!("[reap] Uninstall failed for {}.", package.red());
     }
 }
 
@@ -211,29 +238,33 @@ pub fn get_deps(pkg: &str) -> Vec<String> {
     deps
 }
 
-pub fn upgrade() {
+pub async fn upgrade() {
     println!("[reap] Upgrading system packages...");
-    let _ = std::process::Command::new("sudo")
+    let _ = Command::new("sudo")
         .arg("pacman")
         .arg("-Syu")
         .status();
-    let output = std::process::Command::new("pacman").arg("-Qm").output();
+    let output = Command::new("pacman").arg("-Qm").output();
     if let Ok(out) = output {
         let pkgs = String::from_utf8_lossy(&out.stdout);
-        let config = crate::config::ReapConfig::load(); // <-- FIXED HERE
+        let config = crate::config::ReapConfig::load();
         let (tx, rx) = mpsc::channel();
         let mut _count = 0;
+        let mut tasks = Vec::new();
         for line in pkgs.lines() {
             let pkg = line.split_whitespace().next().unwrap_or("").to_string();
             if !pkg.is_empty() && !config.is_ignored(&pkg) {
                 let tx = tx.clone();
                 _count += 1;
                 utils::backup_package(&pkg);
-                install(&pkg);
-                let _ = tx.send(pkg);
+                tasks.push(tokio::spawn(async move {
+                    crate::aur::install(vec![pkg.as_str()]).await;
+                    let _ = tx.send(pkg);
+                }));
             }
         }
         drop(tx);
+        let _ = join_all(tasks).await;
         for pkg in rx {
             println!("[reap] Finished upgrade for {}", pkg);
         }
@@ -256,16 +287,53 @@ pub fn get_taps() -> HashMap<String, String> {
 }
 
 pub async fn sync_db() {
-    // TODO: implement real sync logic
-    println!("Syncing package database...");
+    println!("[reap] Syncing package database (yay -Sy)...");
+    let status = Command::new("yay")
+        .arg("-Sy")
+        .status()
+        .expect("Failed to run yay -Sy");
+    if status.success() {
+        println!("[reap] Database sync complete.");
+    } else {
+        eprintln!("[reap] Database sync failed.");
+    }
 }
 
 pub async fn upgrade_all() {
-    // TODO: implement real upgrade logic
-    println!("Upgrading all packages...");
+    println!("[reap] Upgrading all packages (yay -Syu)...");
+    let status = Command::new("yay")
+        .arg("-Syu")
+        .status()
+        .expect("Failed to run yay -Syu");
+    if status.success() {
+        println!("[reap] System upgrade complete.");
+    } else {
+        eprintln!("[reap] System upgrade failed.");
+    }
 }
 
 pub fn install_local(path: &str) {
-    // TODO: implement local install logic
-    println!("Installing from local path: {}", path);
+    use std::path::Path;
+    let file = Path::new(path);
+    if !file.exists() {
+        eprintln!("[reap] Local package file does not exist: {}", path.red());
+        return;
+    }
+    let ext = file.extension().and_then(|e| e.to_str()).unwrap_or("");
+    if !(ext == "zst" || path.ends_with(".pkg.tar.zst")) {
+        println!("[reap] Local package file must be a .zst or .pkg.tar.zst: {}", path.yellow());
+        return;
+    }
+    println!("[reap] Installing local package from {} (sudo pacman -U)...", path.yellow());
+    let status = Command::new("sudo")
+        .arg("pacman")
+        .arg("-U")
+        .arg(path)
+        .status()
+        .expect("Failed to run sudo pacman -U <file>");
+    if status.success() {
+        println!("[reap] Local install complete: {}.", path.green());
+    } else {
+        eprintln!("[reap] Local install failed: {}.", path.red());
+    }
 }

@@ -104,6 +104,35 @@ pub fn audit_flatpak_manifest(manifest: &str, lua: Option<&mlua::Lua>) {
     }
 }
 
+pub fn audit_package(pkg: &str) {
+    match crate::core::detect_source(pkg) {
+        Some(crate::core::Source::Aur) => {
+            println!("[AUDIT][AUR] Auditing PKGBUILD for {}...", pkg);
+            let pkgb = crate::aur::get_pkgbuild_preview(pkg);
+            audit_pkgbuild(&pkgb, None);
+            let deps = crate::aur::get_deps(pkg);
+            if deps.is_empty() {
+                println!("[AUDIT][AUR] No dependencies found for {}.", pkg);
+            } else {
+                println!("[AUDIT][AUR] Dependencies for {}: {:?}", pkg, deps);
+            }
+        }
+        Some(crate::core::Source::Flatpak) => {
+            println!("[AUDIT][FLATPAK] flatpak info {}:", pkg);
+            let output = std::process::Command::new("flatpak")
+                .arg("info")
+                .arg(pkg)
+                .output();
+            if let Ok(out) = output {
+                println!("{}", String::from_utf8_lossy(&out.stdout));
+            } else {
+                println!("[AUDIT][FLATPAK] Could not get info for {}.", pkg);
+            }
+        }
+        _ => println!("[AUDIT] Unknown package source for {}.", pkg),
+    }
+}
+
 // --- CLI stub functions for compatibility ---
 pub fn pkgb_diff_audit(package: &str, pkgb: &str) {
     let backup_path = format!("/var/lib/reaper/backup/{}_PKGBUILD.bak", package);
