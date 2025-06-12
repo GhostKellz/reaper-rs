@@ -1,9 +1,11 @@
+#![allow(dead_code)]
+
 use crate::aur::SearchResult;
+use async_trait::async_trait;
 use futures::FutureExt;
 use std::error::Error;
 use std::path::Path;
 use std::process::Command;
-use async_trait::async_trait;
 
 #[async_trait]
 pub trait Backend: Send + Sync {
@@ -53,14 +55,25 @@ impl Backend for AurBackend {
         if let Ok(resp) = resp {
             if let Ok(json) = resp.json::<serde_json::Value>().await {
                 if let Some(results) = json.get("results").and_then(|r| r.as_array()) {
-                    return results.iter().filter_map(|item| {
-                        Some(SearchResult {
-                            name: item.get("Name")?.as_str()?.to_string(),
-                            version: item.get("Version").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                            description: item.get("Description").and_then(|d| d.as_str()).unwrap_or("").to_string(),
-                            source: crate::core::Source::Aur,
+                    return results
+                        .iter()
+                        .filter_map(|item| {
+                            Some(SearchResult {
+                                name: item.get("Name")?.as_str()?.to_string(),
+                                version: item
+                                    .get("Version")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string(),
+                                description: item
+                                    .get("Description")
+                                    .and_then(|d| d.as_str())
+                                    .unwrap_or("")
+                                    .to_string(),
+                                source: crate::core::Source::Aur,
+                            })
                         })
-                    }).collect();
+                        .collect();
                 }
             }
         }

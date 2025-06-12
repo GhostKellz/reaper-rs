@@ -32,7 +32,12 @@ pub struct Cli {
         help = "Install a package"
     )]
     pub install: Option<String>,
-    #[arg(long = "backend", value_name = "BACKEND", default_value = "aur", help = "Select backend: aur, flatpak")]
+    #[arg(
+        long = "backend",
+        value_name = "BACKEND",
+        default_value = "aur",
+        help = "Select backend: aur, flatpak"
+    )]
     pub backend: String,
 }
 

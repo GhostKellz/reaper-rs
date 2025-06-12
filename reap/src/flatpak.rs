@@ -1,13 +1,10 @@
-use std::process::Command;
 use crate::aur::SearchResult;
 use crate::core::Source;
+use std::process::Command;
 
 // Flatpak integration (scaffold)
 pub fn search(query: &str) -> Vec<SearchResult> {
-    let output = Command::new("flatpak")
-        .arg("search")
-        .arg(query)
-        .output();
+    let output = Command::new("flatpak").arg("search").arg(query).output();
     if let Ok(out) = output {
         if out.status.success() {
             let stdout = String::from_utf8_lossy(&out.stdout);

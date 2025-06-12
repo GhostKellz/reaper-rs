@@ -19,11 +19,12 @@ async fn main() {
     let backend = cli.backend.clone();
     match cli.command {
         Commands::Install { pkgs } => {
+            let backend = core::get_backend(&backend);
             for pkg in pkgs {
-                core::get_backend(&backend).install(&pkg).await;
+                backend.install(&pkg).await;
             }
         }
-        Commands::Remove { pkgs } => todo!("Remove not yet implemented"),
+        Commands::Remove { pkgs: _ } => todo!("Remove not yet implemented"),
         Commands::Search { query } => core::handle_search(query).await,
         Commands::Upgrade => core::handle_upgrade(),
         Commands::Rollback { pkg } => core::handle_rollback(&pkg),

@@ -235,26 +235,16 @@ pub async fn handle_install_parallel(pkgs: Vec<String>, max_parallel: usize) {
         let pkg = pkg.clone();
         handles.push(tokio::spawn(async move {
             let _permit = permit;
-            if let Err(e) = std::panic::AssertUnwindSafe(async {
+            let _ = std::panic::AssertUnwindSafe(async {
                 handle_install(vec![pkg.clone()]);
             })
             .catch_unwind()
-            .await
-            {
-                pb.println(format!("{} {}: {:?}", "❌", pkg, e));
-            } else {
-                pb.println(format!("{} {}", "✔", pkg));
-            }
+            .await;
             pb.inc(1);
             Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
         }));
     }
-    let results = join_all(handles).await;
-    for result in results {
-        if let Err(e) = result {
-            eprintln!("[reap] Failed: {e}");
-        }
-    }
+    let _ = join_all(handles).await;
     pb.finish_with_message("All installs complete.");
     println!("[reap] All installs complete.");
 }
@@ -410,7 +400,10 @@ pub fn get_backend(backend_str: &str) -> Box<dyn Backend> {
         "aur" => Box::new(AurBackend::new()),
         "flatpak" => Box::new(crate::backend::FlatpakBackend::new()),
         _ => {
-            eprintln!("[reap] Unknown backend: {}. Defaulting to AUR.", backend_str);
+            eprintln!(
+                "[reap] Unknown backend: {}. Defaulting to AUR.",
+                backend_str
+            );
             Box::new(AurBackend::new())
         }
     }
