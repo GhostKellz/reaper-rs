@@ -8,6 +8,8 @@ use crate::flatpak;
 use crate::pacman;
 use crate::tui::LogPane;
 use crate::utils;
+use crate::hooks;
+use crate::tui;
 use futures::FutureExt;
 use futures::future::join_all;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -233,7 +235,7 @@ pub fn handle_install(pkgs: Vec<String>) {
     let backend: Box<dyn Backend> = Box::new(AurBackend::new());
     for pkg in pkgs {
         println!("[reap] Installing {}...", pkg);
-        let _ = backend.install(&pkg);
+        tokio::runtime::Runtime::new().unwrap().block_on(backend.install(&pkg));
     }
 }
 
@@ -355,18 +357,6 @@ pub fn handle_doctor() {
     println!("{} AUR network access", if aur_ok { "✔" } else { "✗" });
 }
 
-pub fn handle_pin(_pkg: String) {
-    println!("[reap] Pinning not yet implemented.");
-}
-
-pub fn handle_clean() {
-    println!("[reap] Clean not yet implemented.");
-}
-
-pub fn handle_gpg_refresh() {
-    crate::gpg::refresh_keys();
-}
-
 /// Handle CLI commands based on the provided `Cli` struct
 pub async fn handle_cli(cli: &Cli) {
     use crate::cli::Commands;
@@ -378,6 +368,19 @@ pub async fn handle_cli(cli: &Cli) {
                     Err(e) => eprintln!("[reap] Install failed for {}: {:?}", pkg, e),
                 }
             }
+        }
+        Commands::Remove { pkgs } => {
+            for pkg in pkgs {
+                aur::uninstall(pkg);
+            }
+        }
+        Commands::Local { pkgs } => {
+            for pkg in pkgs {
+                aur::install_local(pkg);
+            }
+        }
+        Commands::Search { terms } => {
+            handle_search(terms).await;
         }
         Commands::UpgradeAll => {
             match upgrade_all().await {
@@ -396,8 +399,8 @@ pub async fn handle_cli(cli: &Cli) {
             println!("[reap] Audit complete for {}", pkg);
         }
         Commands::Rollback { pkg } => {
-            crate::utils::rollback(pkg);
-            println!("[reap] Rollback complete for {}", pkg);
+            hooks::on_rollback(pkg);
+            println!("[reap] Rollback hook triggered for {}", pkg);
         }
         Commands::SyncDb => {
             match aur::sync_db().await {
@@ -405,10 +408,34 @@ pub async fn handle_cli(cli: &Cli) {
                 Err(e) => eprintln!("[reap] Sync DB failed: {:?}", e),
             }
         }
-        Commands::Search { terms } => {
-            handle_search(terms).await;
+        Commands::Upgrade => {
+            match aur::upgrade_all().await {
+                Ok(_) => println!("[reap] Upgrade succeeded"),
+                Err(e) => eprintln!("[reap] Upgrade failed: {:?}", e),
+            }
         }
-        _ => {}
+        Commands::Pin { pkg } => {
+            match utils::pin_package(pkg) {
+                Ok(_) => println!("[reap] Pinned {}", pkg),
+                Err(e) => eprintln!("[reap] Pin failed for {}: {}", pkg, e),
+            }
+        }
+        Commands::Clean => {
+            match utils::clean_cache() {
+                Ok(msg) => println!("[reap] {}", msg),
+                Err(e) => eprintln!("[reap] Clean failed: {}", e),
+            }
+        }
+        Commands::Doctor => {
+            match utils::doctor_report() {
+                Ok(msg) => println!("[reap doctor] {}", msg),
+                Err(e) => eprintln!("[reap doctor] Error: {}", e),
+            }
+        }
+        Commands::Tui => {
+            tui::run_ui().await;
+        }
+        &Commands::Gpg { .. } => println!("GPG command not yet implemented."),
     }
 }
 

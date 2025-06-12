@@ -1,7 +1,8 @@
-use crate::aur;
-use crate::aur::SearchResult;
 use crate::config::ReapConfig;
 use crate::core;
+use crate::core::get_installed_packages;
+use crate::aur;
+use crate::aur::SearchResult;
 use crossterm::event::{self, Event, KeyCode};
 use mlua::Lua;
 use ratatui::prelude::{Constraint, Direction, Layout};
@@ -178,6 +179,51 @@ pub async fn launch_tui() {
         }
     }
     restore_terminal();
+}
+
+pub async fn run_ui() {
+    use crossterm::{event, terminal};
+    use std::io::{stdout, Write};
+    use std::time::Duration;
+    use crate::utils;
+    let pkgs = get_installed_packages();
+    let mut pinned = Vec::new();
+    let mut selected = 0;
+    let pkg_names: Vec<_> = pkgs.keys().cloned().collect();
+    let _ = terminal::enable_raw_mode();
+    let mut stdout = stdout();
+    loop {
+        println!("[reap TUI] Installed Packages (use ↑/↓, p=pin, q=quit):");
+        for (i, pkg) in pkg_names.iter().enumerate() {
+            if i == selected {
+                print!("> ");
+            } else {
+                print!("  ");
+            }
+            let pin_mark = if pinned.contains(pkg) { "[*]" } else { "   " };
+            println!("{} {}", pin_mark, pkg);
+        }
+        stdout.flush().unwrap();
+        if event::poll(Duration::from_millis(200)).unwrap() {
+            if let event::Event::Key(key) = event::read().unwrap() {
+                match key.code {
+                    event::KeyCode::Char('q') => break,
+                    event::KeyCode::Up => if selected > 0 { selected -= 1; },
+                    event::KeyCode::Down => if selected + 1 < pkg_names.len() { selected += 1; },
+                    event::KeyCode::Char('p') => {
+                        let pkg = &pkg_names[selected];
+                        if !pinned.contains(pkg) {
+                            let _ = utils::pin_package(pkg);
+                            pinned.push(pkg.clone());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    let _ = terminal::disable_raw_mode();
+    println!("[reap TUI] Exited.");
 }
 
 fn setup_terminal() -> ratatui::Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>> {

@@ -162,6 +162,9 @@ pub async fn install(pkgs: Vec<&str>) -> Result<(), Box<dyn std::error::Error + 
                 .arg(&pkg)
                 .status()
                 .expect("Failed to run -S <pkg>");
+            if status.success() {
+                crate::hooks::on_install(&pkg);
+            }
             (pkg, status.success())
         }));
     }
@@ -175,6 +178,9 @@ pub async fn install(pkgs: Vec<&str>) -> Result<(), Box<dyn std::error::Error + 
     }
     Ok(())
 }
+
+pub use crate::hooks::on_install;
+pub use crate::hooks::on_rollback;
 
 pub fn uninstall(package: &str) {
     let yay = which::which("yay").is_ok();
@@ -298,14 +304,33 @@ pub async fn sync_db() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 }
 
 pub async fn upgrade_all() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    println!("[reap] Upgrading all packages (yay -Syu)...");
-    let status = Command::new("yay")
-        .arg("-Syu")
-        .status()?;
-    if status.success() {
-        println!("[reap] System upgrade complete.");
-    } else {
-        eprintln!("[reap] System upgrade failed.");
+    let outdated = get_outdated();
+    if outdated.is_empty() {
+        println!("[reap] All packages are up to date.");
+        return Ok(());
+    }
+    println!("[reap] Outdated packages:");
+    for pkg in &outdated {
+        println!("  - {}", pkg);
+    }
+    let mut to_upgrade = Vec::new();
+    for pkg in &outdated {
+        if utils::is_pinned(pkg) {
+            println!("[reap] Skipping pinned package: {}", pkg);
+            continue;
+        }
+        // Prompt user to upgrade (for now, auto-upgrade)
+        to_upgrade.push(pkg.as_str());
+    }
+    if to_upgrade.is_empty() {
+        println!("[reap] No packages to upgrade (all pinned).");
+        return Ok(());
+    }
+    println!("[reap] Upgrading {} packages...", to_upgrade.len());
+    let res = install(to_upgrade).await;
+    match res {
+        Ok(_) => println!("[reap] Upgrade complete."),
+        Err(e) => eprintln!("[reap] Upgrade failed: {}", e),
     }
     Ok(())
 }
@@ -340,4 +365,22 @@ pub fn install_local(path: &str) {
     } else {
         eprintln!("[reap] Local install failed: {}.", path.red());
     }
+}
+
+pub fn get_outdated() -> Vec<String> {
+    use crate::pacman;
+    use crate::aur::fetch_package_info;
+    let installed = pacman::list_installed_aur();
+    let mut outdated = Vec::new();
+    for pkg in installed {
+        let local_ver = pacman::get_version(&pkg);
+        if let Ok(remote) = fetch_package_info(&pkg) {
+            if let Some(local_ver) = local_ver {
+                if local_ver != remote.version {
+                    outdated.push(pkg);
+                }
+            }
+        }
+    }
+    outdated
 }

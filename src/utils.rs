@@ -2,8 +2,8 @@ use crate::aur::SearchResult;
 use diff::lines;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
-use std::fs;
 use std::sync::Mutex;
+use std::fs;
 
 static PKGBUILD_CACHE: Lazy<Mutex<HashMap<String, String>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
@@ -136,7 +136,8 @@ pub fn audit_package(pkg: &str) {
 // --- CLI stub functions for compatibility ---
 pub fn pkgb_diff_audit(package: &str, pkgb: &str) {
     let backup_path = format!("/var/lib/reaper/backup/{}_PKGBUILD.bak", package);
-    if let Ok(old_pkgb) = fs::read_to_string(&backup_path) {
+    let backup_path = std::path::Path::new(&backup_path);
+    if let Ok(old_pkgb) = fs::read_to_string(backup_path) {
         for diff in lines(&old_pkgb, pkgb) {
             match diff {
                 diff::Result::Left(l) => println!("[-] {}", l),
@@ -238,5 +239,92 @@ pub async fn check_keyserver_async(keyserver: &str) {
         }
     } else {
         println!("[reap] Failed to check GPG keyserver {}.", keyserver);
+    }
+}
+
+pub fn pin_package(pkg: &str) -> Result<(), String> {
+    use std::fs::OpenOptions;
+    use std::io::Write;
+    let config_path = dirs::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
+        .join(".config/reap/pinned.toml");
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&config_path)
+        .map_err(|e| format!("Failed to open pinned.toml: {}", e))?;
+    writeln!(file, "{}", pkg).map_err(|e| format!("Failed to write: {}", e))?;
+    Ok(())
+}
+
+pub fn is_pinned(pkg: &str) -> bool {
+    use std::fs;
+    let config_path = dirs::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
+        .join(".config/reap/pinned.toml");
+    if let Ok(contents) = fs::read_to_string(&config_path) {
+        contents.lines().any(|line| line.trim() == pkg)
+    } else {
+        false
+    }
+}
+
+pub fn clean_cache() -> Result<String, String> {
+    let home = dirs::home_dir().unwrap_or_default();
+    let cache_dirs = vec!["/tmp/reap".to_string(), format!("{}/.cache/reap", home.display())];
+    let mut deleted = 0;
+    for dir in &cache_dirs {
+        let path = std::path::PathBuf::from(dir);
+        if path.exists() && path.is_dir() {
+            for entry in fs::read_dir(&path).map_err(|e| format!("Failed to read {}: {}", dir, e))? {
+                let entry = entry.map_err(|e| format!("Read dir error: {}", e))?;
+                let p = entry.path();
+                if p.is_file() {
+                    fs::remove_file(&p).map_err(|e| format!("Failed to remove {}: {}", p.display(), e))?;
+                    deleted += 1;
+                }
+            }
+        }
+    }
+    if deleted > 0 {
+        Ok(format!("Cleaned {} cache files.", deleted))
+    } else {
+        Ok("Nothing to clean.".to_string())
+    }
+}
+
+pub fn doctor_report() -> Result<String, String> {
+    let mut issues = Vec::new();
+    // Check for broken symlinks in /usr/bin/reap-*
+    if let Ok(entries) = fs::read_dir("/usr/bin") {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                if name.starts_with("reap-") && path.is_symlink() {
+                    if let Ok(target) = fs::read_link(&path) {
+                        if !target.exists() {
+                            issues.push(format!("Broken symlink: {} -> {}", path.display(), target.display()));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Check for missing config files
+    let config_dir = dirs::home_dir().unwrap_or_default().join(".config/reap");
+    if !config_dir.exists() {
+        issues.push(format!("Missing config dir: {}", config_dir.display()));
+    }
+    let required = ["brew.lua", "pinned.toml"];
+    for f in &required {
+        let fpath = config_dir.join(f);
+        if !fpath.exists() {
+            issues.push(format!("Missing config file: {}", fpath.display()));
+        }
+    }
+    if issues.is_empty() {
+        Ok("System appears healthy".to_string())
+    } else {
+        Ok(format!("Issues found:\n{}", issues.join("\n")))
     }
 }

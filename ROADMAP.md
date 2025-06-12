@@ -17,6 +17,13 @@ Basic CLI functionality powered by `std::process::Command`:
 - [x] GPG verification with PKGBUILD.sig
 - [x] Basic error handling and logging
 - [x] No longer relies on yay/paru (fallback removed)
+- [x] `reap --rollback` – now wired to `hooks::on_rollback()` for tracking reversions.
+- [x] `reap --upgradeall` – upgraded to call `aur::upgrade_all()` with summary reporting.
+- [x] Flatpak support – install + upgrade fully integrated.
+- [x] `reap --tui` – launches the async TUI (stub or basic UI).
+- [x] `reap --pin` – pins packages to exclude from upgrades.
+- [x] `reap --clean` – cleans cache or temp files.
+- [x] `reap doctor` – performs basic health check and config audit.
 
 ---
 
@@ -44,13 +51,19 @@ Modular design, performance improvements:
 - [ ] Logging and audit mode (`--log`, `--audit`)
 - [x] Async install queues with progress bars
 
+### 🔁 Rollback & Pinning
+
+- [x] Rollback hook support (triggered post-install)
+- [x] Configurable pinned packages (`~/.config/reap/pinned.toml`)
+
 ---
 
 ## 🎨 User Experience (TUI)
 
 Optional terminal UI using `ratatui` or similar:
 
-- [ ] `reap tui` – Full TUI interface
+- [x] TUI mode (`reap tui`) now launches an interactive CLI menu
+- [ ] Still in early stage; UI will be extended with package list, queue, and diff viewer
 - [ ] Search, install, queue, review updates interactively
 - [ ] Real-time log pane, diff viewer for PKGBUILDs
 
@@ -91,8 +104,7 @@ Long-term exploration:
 
 ## 📅 Status
 
-Current focus: **MVP completion and transition away from yay/paru dependencies.**  
-Target: **Self-contained, reliable AUR helper with fast, async-native execution.**
+Current focus: **Post-MVP polish and implementing persistent features like pinning, rollback, and TUI interactivity.**
 
 ---
 
