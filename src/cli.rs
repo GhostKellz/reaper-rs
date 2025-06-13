@@ -34,12 +34,39 @@ pub struct Cli {
         help = "Select backend: aur, flatpak"
     )]
     pub backend: String,
+    #[arg(long = "edit", help = "Edit PKGBUILD before building")]
+    pub edit: bool,
+    #[arg(long = "noconfirm", help = "Skip confirmation prompts")]
+    pub noconfirm: bool,
+    #[arg(long = "dry-run", help = "Show what would be done, but do not install")]
+    pub dry_run: bool,
+    #[arg(
+        long = "downgrade",
+        value_name = "PKG=VER",
+        help = "Downgrade package to a specific version"
+    )]
+    pub downgrade: Option<String>,
+    #[arg(long = "diff", help = "Show PKGBUILD diff before install/upgrade")]
+    pub diff: bool,
+    #[arg(
+        long = "resolve-deps",
+        help = "Automatically install missing dependencies before build"
+    )]
+    pub resolve_deps: bool,
 }
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
-    /// Install one or more packages
-    Install { pkgs: Vec<String>, parallel: bool },
+    /// Install a package
+    Install {
+        pkg: String,
+        #[arg(long)]
+        repo: Option<String>,
+        #[arg(long)]
+        binary_only: bool,
+        #[arg(long)]
+        diff: bool,
+    },
     /// Remove one or more packages
     Remove { pkgs: Vec<String> },
     /// Install local packages
@@ -85,6 +112,13 @@ pub enum Commands {
     Completion { shell: String },
     /// Backup current config to backup directory
     Backup,
+    /// List orphaned packages
+    Orphan {
+        #[arg(long = "remove", help = "Uninstall orphaned packages")]
+        remove: bool,
+        #[arg(long = "all", help = "Include orphaned pacman packages, not just AUR")]
+        all: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]

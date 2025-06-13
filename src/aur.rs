@@ -3,7 +3,7 @@ use futures::future::join_all;
 use once_cell::sync::Lazy;
 use owo_colors::OwoColorize;
 use reqwest::blocking::Client;
-use serde::Deserialize;
+use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs;
@@ -24,7 +24,7 @@ static TAP_REPOS: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| {
     Mutex::new(map)
 });
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchResult {
     pub name: String,
     pub version: String,

@@ -1,16 +1,15 @@
 use crate::aur::SearchResult;
 use diff::lines;
 use once_cell::sync::Lazy;
-use std::collections::HashMap;
 use std::fs;
 use std::os::unix::process::ExitStatusExt;
-use std::sync::Mutex;
+use toml::Value;
 
-static PKGBUILD_CACHE: Lazy<Mutex<HashMap<String, String>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
+static PKGBUILD_CACHE: Lazy<std::sync::Mutex<std::collections::HashMap<String, String>>> =
+    Lazy::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
-static SEARCH_CACHE: Lazy<Mutex<HashMap<String, Vec<SearchResult>>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
+static SEARCH_CACHE: Lazy<std::sync::Mutex<std::collections::HashMap<String, Vec<SearchResult>>>> =
+    Lazy::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
 /// Caches and returns AUR search results for a query
 pub fn get_cached_search(query: &str) -> Option<Vec<SearchResult>> {
@@ -98,7 +97,7 @@ pub fn audit_flatpak_manifest(manifest: &str, lua: Option<&mlua::Lua>) {
 }
 
 pub fn audit_package(pkg: &str) {
-    match crate::core::detect_source(pkg) {
+    match crate::core::detect_source(pkg, None, false) {
         Some(crate::core::Source::Aur) => {
             println!("[AUDIT][AUR] Auditing PKGBUILD for {}...", pkg);
             let pkgb = crate::aur::get_pkgbuild_preview(pkg);
@@ -126,6 +125,80 @@ pub fn audit_package(pkg: &str) {
     }
 }
 
+/// Parse PKGBUILD for depends, makedepends, conflicts and check system state
+pub fn resolve_deps(
+    pkgb: &str,
+) -> (
+    Vec<String>,
+    Vec<String>,
+    Vec<String>,
+    Vec<String>,
+    Vec<String>,
+) {
+    let mut depends = Vec::new();
+    let mut makedepends = Vec::new();
+    let mut conflicts = Vec::new();
+    let mut missing = Vec::new();
+    let mut conflicting = Vec::new();
+    for line in pkgb.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("depends=") {
+            let dep_line = trimmed.split_once('=').map(|x| x.1).unwrap_or("").trim();
+            depends.extend(
+                dep_line
+                    .trim_matches(&['(', ')', '"', '\'', ' '] as &[_])
+                    .split_whitespace()
+                    .map(|s| s.trim_matches(&['"', '\'', ' '] as &[_]))
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string()),
+            );
+        } else if trimmed.starts_with("makedepends=") {
+            let dep_line = trimmed.split_once('=').map(|x| x.1).unwrap_or("").trim();
+            makedepends.extend(
+                dep_line
+                    .trim_matches(&['(', ')', '"', '\'', ' '] as &[_])
+                    .split_whitespace()
+                    .map(|s| s.trim_matches(&['"', '\'', ' '] as &[_]))
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string()),
+            );
+        } else if trimmed.starts_with("conflicts=") {
+            let dep_line = trimmed.split_once('=').map(|x| x.1).unwrap_or("").trim();
+            conflicts.extend(
+                dep_line
+                    .trim_matches(&['(', ')', '"', '\'', ' '] as &[_])
+                    .split_whitespace()
+                    .map(|s| s.trim_matches(&['"', '\'', ' '] as &[_]))
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string()),
+            );
+        }
+    }
+    // Check installed packages
+    let installed: Vec<String> = {
+        let output = std::process::Command::new("pacman").arg("-Q").output();
+        if let Ok(out) = output {
+            String::from_utf8_lossy(&out.stdout)
+                .lines()
+                .map(|l| l.split_whitespace().next().unwrap_or("").to_string())
+                .collect()
+        } else {
+            Vec::new()
+        }
+    };
+    for dep in depends.iter().chain(makedepends.iter()) {
+        if !installed.contains(dep) {
+            missing.push(dep.clone());
+        }
+    }
+    for c in &conflicts {
+        if installed.contains(c) {
+            conflicting.push(c.clone());
+        }
+    }
+    (depends, makedepends, conflicts, missing, conflicting)
+}
+
 // --- CLI stub functions for compatibility ---
 pub fn pkgb_diff_audit(package: &str, pkgb: &str) {
     let backup_path =
@@ -140,6 +213,27 @@ pub fn pkgb_diff_audit(package: &str, pkgb: &str) {
         }
     } else {
         println!("[reap] No previous PKGBUILD backup found for {}.", package);
+    }
+}
+
+/// Compare two PKGBUILD files and print a diff
+pub fn compare_pkgbuilds(pkg: &str, new_pkgb: &str) {
+    let backup_path =
+        std::path::PathBuf::from(format!("/var/lib/reaper/backups/{}/PKGBUILD.bak", pkg));
+    if let Ok(old_pkgb) = fs::read_to_string(&backup_path) {
+        println!("[reap][diff] Diff for {}:", pkg);
+        for diff in lines(&old_pkgb, new_pkgb) {
+            match diff {
+                diff::Result::Left(l) => println!("- {}", l),
+                diff::Result::Right(r) => println!("+ {}", r),
+                diff::Result::Both(l, _) => println!("  {}", l),
+            }
+        }
+    } else {
+        println!(
+            "[reap][diff] No previous PKGBUILD backup found for {}.",
+            pkg
+        );
     }
 }
 
@@ -274,10 +368,32 @@ pub fn is_pinned(pkg: &str) -> bool {
         .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
         .join(".config/reap/pinned.toml");
     if let Ok(contents) = fs::read_to_string(&config_path) {
+        if let Ok(toml) = contents.parse::<Value>() {
+            if let Some(table) = toml.as_table() {
+                return table.contains_key(pkg);
+            }
+        }
+        // Fallback: check for simple line pin
         contents.lines().any(|line| line.trim() == pkg)
     } else {
         false
     }
+}
+
+pub fn pinned_version(pkg: &str) -> Option<String> {
+    let config_path = dirs::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
+        .join(".config/reap/pinned.toml");
+    if let Ok(contents) = fs::read_to_string(&config_path) {
+        if let Ok(toml) = contents.parse::<Value>() {
+            if let Some(table) = toml.as_table() {
+                if let Some(Value::String(ver)) = table.get(pkg) {
+                    return Some(ver.clone());
+                }
+            }
+        }
+    }
+    None
 }
 
 pub fn clean_cache() -> Result<String, String> {
@@ -415,5 +531,75 @@ pub fn backup_config() -> Result<(), String> {
             Ok(())
         }
         Err(e) => Err(format!("[reap] Failed to backup config: {}", e)),
+    }
+}
+
+pub mod cache {
+    use crate::aur::SearchResult;
+    use once_cell::sync::Lazy;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{Duration, SystemTime};
+
+    static PKGBUILD_CACHE_DIR: Lazy<PathBuf> = Lazy::new(|| {
+        dirs::cache_dir()
+            .unwrap_or_else(|| PathBuf::from("/tmp"))
+            .join("reap/pkgbuilds")
+    });
+    static SEARCH_CACHE_DIR: Lazy<PathBuf> = Lazy::new(|| {
+        dirs::cache_dir()
+            .unwrap_or_else(|| PathBuf::from("/tmp"))
+            .join("reap/search")
+    });
+
+    pub fn save_pkgbuild(pkg: &str, content: &str) {
+        let path = PKGBUILD_CACHE_DIR.join(pkg);
+        let _ = fs::create_dir_all(PKGBUILD_CACHE_DIR.as_path());
+        let _ = fs::write(path, content);
+    }
+
+    pub fn load_pkgbuild(pkg: &str) -> Option<String> {
+        let path = PKGBUILD_CACHE_DIR.join(pkg);
+        if let Ok(meta) = fs::metadata(&path) {
+            if let Ok(modified) = meta.modified() {
+                if SystemTime::now()
+                    .duration_since(modified)
+                    .unwrap_or(Duration::from_secs(0))
+                    < Duration::from_secs(60 * 60 * 24)
+                {
+                    return fs::read_to_string(&path).ok();
+                }
+            }
+        }
+        None
+    }
+
+    pub fn expire_cache() {
+        let _ = fs::remove_dir_all(PKGBUILD_CACHE_DIR.as_path());
+        let _ = fs::remove_dir_all(SEARCH_CACHE_DIR.as_path());
+    }
+
+    pub fn save_search(query: &str, results: &[SearchResult]) {
+        let path = SEARCH_CACHE_DIR.join(query);
+        let _ = fs::create_dir_all(SEARCH_CACHE_DIR.as_path());
+        let _ = fs::write(path, serde_json::to_string(results).unwrap_or_default());
+    }
+
+    pub fn load_search(query: &str) -> Option<Vec<SearchResult>> {
+        let path = SEARCH_CACHE_DIR.join(query);
+        if let Ok(meta) = fs::metadata(&path) {
+            if let Ok(modified) = meta.modified() {
+                if SystemTime::now()
+                    .duration_since(modified)
+                    .unwrap_or(Duration::from_secs(0))
+                    < Duration::from_secs(60 * 60 * 24)
+                {
+                    if let Ok(data) = fs::read_to_string(&path) {
+                        return serde_json::from_str(&data).ok();
+                    }
+                }
+            }
+        }
+        None
     }
 }

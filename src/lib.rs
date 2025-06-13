@@ -10,6 +10,7 @@ pub mod pacman;
 pub mod tui;
 pub mod utils;
 
+
 pub use crate::aur::SearchResult;
 pub use crate::aur::get_deps;
 pub use crate::core::{Source, install_with_priority, unified_search};
