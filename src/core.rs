@@ -407,6 +407,12 @@ pub async fn install_with_priority(
     }
     let elapsed = start.elapsed();
     log.push(&format!("[reap][timing] install_with_priority for {} took: {:?}", pkg, elapsed));
+    // Backup before install
+    if let Ok(backup_path) = backup_package_state(pkg) {
+        log.push(&format!("[reap][backup] State backed up to {}", backup_path.display()));
+    }
+    // Show PKGBUILD diff before install
+    show_pkgbuild_diff(pkg);
 }
 
 pub async fn unified_search(query: &str) -> Vec<aur::SearchResult> {
@@ -800,11 +806,10 @@ pub fn get_pkgbuild_preview(pkg: &str) -> String {
     if let Ok(file) = File::open(&local_path) {
         let reader = BufReader::new(file);
         let mut content = String::new();
-        for line in reader.lines() {
-            if let Ok(l) = line {
-                content.push_str(&l);
-                content.push('\n');
-            }
+        // Replace manual if let Ok(l) = line with .map_while(Result::ok)
+        for line in reader.lines().map_while(Result::ok) {
+            content.push_str(&line);
+            content.push('\n');
         }
         return content;
     }
@@ -978,7 +983,7 @@ pub async fn handle_install_dispatch(
 }
 
 /// Recursively resolve all missing dependencies for a list of packages (AUR + repo)
-pub async fn resolve_and_install_deps<'a>(
+pub fn resolve_and_install_deps<'a>(
     pkgs: &'a [&str],
     log: Option<&'a LogPane>,
     already_installed: &'a mut HashSet<String>,
@@ -989,11 +994,13 @@ pub async fn resolve_and_install_deps<'a>(
             if already_installed.contains(pkg) || already_queued.contains(pkg) {
                 continue;
             }
+
             let pkgb = aur::get_pkgbuild_preview(pkg);
             let mut resolved = HashSet::new();
             let mut dep_map = HashMap::new();
             let deps: Vec<(String, Source)> =
                 resolve_deps_for(&pkgb, &mut resolved, &mut dep_map, true);
+
             if deps.is_empty() {
                 if let Some(log) = log {
                     log.push(&format!("✓ All dependencies already installed for {}", pkg));
@@ -1009,23 +1016,26 @@ pub async fn resolve_and_install_deps<'a>(
                 } else {
                     println!("⚠ Installing missing dependencies for {}: {:?}", pkg, deps);
                 }
+
                 for dep in &deps {
                     if already_installed.contains(&dep.0) || already_queued.contains(&dep.0) {
                         continue;
                     }
-                    // Recursively resolve dependencies for this dep
+
+                    // Recursively resolve
                     resolve_and_install_deps(
                         &[dep.0.as_str()],
                         log,
                         already_installed,
                         already_queued,
                     )
-                    .await;
-                    // Install the dep (repo or AUR)
+                    .await?;
+
                     let repo_status = std::process::Command::new("pacman")
                         .arg("-Si")
                         .arg(&dep.0)
                         .status();
+
                     if let Ok(s) = repo_status {
                         if s.success() {
                             let _ = std::process::Command::new("sudo")
@@ -1034,30 +1044,36 @@ pub async fn resolve_and_install_deps<'a>(
                                 .arg("--noconfirm")
                                 .arg(&dep.0)
                                 .status();
+
                             if let Some(log) = log {
                                 log.push(&format!("[deps] Installed {} from repo", dep.0));
                             } else {
                                 println!("[deps] Installed {} from repo", dep.0);
                             }
+
                             already_installed.insert(dep.0.clone());
                             continue;
                         }
                     }
-                    // Fallback to AUR
+
                     let opts = InstallOptions {
                         insecure: false,
                         gpg_keyserver: None,
                     };
+
                     install_aur_native(dep.0.as_str(), log.unwrap(), &opts)
                         .await
                         .unwrap_or_else(|e| {
                             println!("[deps] Failed to install {}: {:?}", dep.0, e);
                         });
+
                     already_installed.insert(dep.0.clone());
                 }
             }
+
             already_queued.insert(pkg.to_string());
         }
+
         Ok(())
     })
 }
@@ -1065,16 +1081,16 @@ pub async fn resolve_and_install_deps<'a>(
 /// Hybrid dependency resolver: tap > AUR > system
 pub fn resolve_deps_for(
     pkg: &str,
-    resolved: &mut HashSet<String>,
-    dep_map: &mut HashMap<String, Source>,
-    cache: bool,
+    resolved: &mut std::collections::HashSet<String>,
+    dep_map: &mut std::collections::HashMap<String, Source>,
+    _cache: bool,
 ) -> Vec<(String, Source)> {
     #[cfg(feature = "cache")]
     let cache_dir = dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("/tmp"))
         .join("reap/cache/resolved");
     #[cfg(feature = "cache")]
-    if cache {
+    if _cache {
         let cache_path = cache_dir.join(format!("{}.json", pkg));
         if let Ok(data) = fs::read_to_string(&cache_path) {
             if let Ok(map) = serde_json::from_str::<HashMap<String, String>>(&data) {
@@ -1178,10 +1194,10 @@ pub fn resolve_deps_for(
     }
     // Recurse if --resolve-deps
     for (dep, _src) in queue.clone() {
-        let _ = resolve_deps_for(&dep, resolved, dep_map, cache);
+        let _ = resolve_deps_for(&dep, resolved, dep_map, _cache);
     }
     #[cfg(feature = "cache")]
-    if cache {
+    if _cache {
         let _ = fs::create_dir_all(&cache_dir);
         let mut out: HashMap<String, String> = HashMap::new();
         for (dep, src) in dep_map.iter() {
@@ -1381,8 +1397,3 @@ pub async fn handle_cli(cli: &Cli) -> Result<(), Box<dyn std::error::Error + Sen
     }
     Ok(())
 }
-
-// Standardize anyhow::Result<T> for error handling and use consistent logging for all major flows.
-// Improve dependency resolution and conflict detection, add interactive prompts for removals and PKGBUILD edits
-// Implement audit/logging mode for upstream changes and install/upgrade actions
-// Finalize config CLI and TOML/YAML config loading/validation, begin plugin/hook system scaffolding

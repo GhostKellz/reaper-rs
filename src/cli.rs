@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand};
 #[derive(Parser, Debug)]
 #[command(
     name = "reap",
-    version = "0.3.0",
+    version = "0.4.0",
     about = "Reaper: Secure, unified Rust-powered meta package manager\n\nUSAGE EXAMPLES:\n  reap install <pkg> --fast\n  reap install <pkg> --strict\n  reap install <pkg> --insecure\n  reap tap add mytap https://github.com/me/mytap.git\n  reap doctor --fix\n\nConfig precedence: CLI flag > ~/.config/reap/reap.toml > default\nSee README.md for more.",
     long_about = None
 )]

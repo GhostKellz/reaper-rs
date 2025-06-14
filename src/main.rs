@@ -14,6 +14,7 @@ use clap::Parser;
 use cli::Cli;
 use crate::cli::Commands;
 use reap::tap;
+use crate::backend::Backend;
 
 #[cfg(debug_assertions)]
 async fn test_parallel_runners() {
@@ -41,8 +42,16 @@ async fn main() {
         eprintln!("[reap] CLI error: {e}");
         std::process::exit(1);
     }
+    let config = config::ReapConfig::load();
+    println!("[main] Loaded config with parallel level: {}", config.parallel);
     match cli.command {
-        Commands::Audit { pkg } => core::handle_audit(&pkg),
+        Commands::Audit { pkg } => {
+            // Use the backend trait's audit method
+            let backend = backend::AurBackend::new();
+            tokio::spawn(async move {
+                backend.audit(&pkg).await;
+            });
+        },
         Commands::Rollback { pkg } => core::handle_rollback(&pkg),
         Commands::SyncDb => println!("Syncing pacman database..."),
         Commands::Pin { pkg } => {

@@ -82,10 +82,16 @@ pub fn ensure_cache_dirs() {
 
 /// Audit a package by checking its source and dependencies
 pub fn audit_package(pkg: &str) {
+    let pkgb = crate::aur::get_pkgbuild_preview(pkg);
+    if let Some((name, ver)) = parse_pkgname_ver(&pkgb) {
+        println!("[preview] Package: {} v{}", name, ver);
+    } else {
+        println!("[preview] Could not parse PKGBUILD for '{}'", pkg);
+    }
+    println!("PKGBUILD preview:\n{}", pkgb);
     match crate::core::detect_source(pkg, None, false) {
         Some(crate::core::Source::Aur) => {
             println!("[AUDIT][AUR] Auditing PKGBUILD for {}...", pkg);
-            let pkgb = crate::aur::get_pkgbuild_preview(pkg);
             let deps = crate::aur::get_deps(pkg);
             if deps.is_empty() {
                 println!("[AUDIT][AUR] No dependencies found for {}.", pkg);
@@ -600,34 +606,18 @@ pub fn rollback(pkg: &str) {
     }
 }
 
-/// Plugin loader: scan ~/.config/reap/plugins/ for executable .sh/.rs plugins
-pub fn load_plugins() -> Vec<std::path::PathBuf> {
-    let plugin_dir = dirs::config_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
-        .join("reap/plugins");
-    let mut plugins = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(&plugin_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_file()
-                && (path.extension() == Some("sh".as_ref())
-                    || path.extension() == Some("rs".as_ref()))
-                && is_executable(&path)
-            {
-                plugins.push(path);
-            }
+pub fn parse_pkgname_ver(content: &str) -> Option<(String, String)> {
+    let mut name = None;
+    let mut ver = None;
+    for line in content.lines() {
+        if line.starts_with("pkgname=") {
+            name = Some(line.trim_start_matches("pkgname=").trim().to_string());
+        } else if line.starts_with("pkgver=") {
+            ver = Some(line.trim_start_matches("pkgver=").trim().to_string());
         }
     }
-    plugins
+    match (name, ver) {
+        (Some(n), Some(v)) => Some((n, v)),
+        _ => None,
+    }
 }
-
-fn is_executable(path: &std::path::Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::metadata(path)
-        .map(|m| m.permissions().mode() & 0o111 != 0)
-        .unwrap_or(false)
-}
-
-// Ensure all async/parallel flows use owned values or Arc<T> in async blocks
-// Use Arc::clone for shared state if needed
-// Add explicit return types for async blocks using ?
