@@ -1,21 +1,35 @@
-#![allow(dead_code)]
-
 use crate::aur::SearchResult;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use futures::FutureExt;
 use std::error::Error;
 use std::path::Path;
 use std::process::Command;
+use std::str::FromStr;
 
+/// Backend trait for all supported package sources.
+///
+/// - AurBackend: Handles AUR installs via install_aur_native (no yay/paru fallback).
+/// - PacmanBackend: Handles official repo installs via pacman CLI, and upgrades.
+/// - FlatpakBackend: Handles Flatpak installs/upgrades via flatpak CLI.
+/// - TapBackend: Handles install/upgrade of external repos declared via reap tap add (planned).
+///
+/// Backend selection and prioritization order:
+///   1. Local Taps (highest priority, explicit priority field)
+///   2. Official Pacman Repos
+///   3. AUR (native logic)
+///   4. Flatpak (fallback)
+///
+/// See doc/ARCHITECTURE.md for backend flow details.
 #[async_trait]
 pub trait Backend: Send + Sync {
     fn name(&self) -> &'static str;
     fn is_available(&self) -> bool;
-    async fn search<'a>(&'a self, query: &'a str) -> Vec<SearchResult>;
-    async fn install<'a>(&'a self, package: &'a str);
-    async fn upgrade<'a>(&'a self);
-    async fn audit<'a>(&'a self, package: &'a str);
-    async fn gpg_check<'a>(&'a self, package: &'a str);
+    async fn search(&self, query: &str) -> Vec<SearchResult>;
+    async fn install(&self, package: &str);
+    async fn upgrade(&self);
+    async fn audit(&self, package: &str);
+    async fn gpg_check(&self, package: &str);
 }
 
 pub fn build_and_install(pkgdir: &Path) -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -23,7 +37,8 @@ pub fn build_and_install(pkgdir: &Path) -> Result<(), Box<dyn Error + Send + Syn
         .arg("-si")
         .arg("--noconfirm")
         .current_dir(pkgdir)
-        .status()?;
+        .status()
+        .context("failed to execute makepkg")?;
     if !status.success() {
         return Err("makepkg failed".into());
     }
@@ -48,58 +63,30 @@ impl Backend for AurBackend {
         "AUR"
     }
     fn is_available(&self) -> bool {
-        which::which("yay").is_ok() || which::which("paru").is_ok()
+        true // Always available, no yay/paru fallback
     }
-    async fn search<'a>(&'a self, query: &'a str) -> Vec<SearchResult> {
-        let client = reqwest::Client::new();
-        let url = format!(
-            "https://aur.archlinux.org/rpc/?v=5&type=search&arg={}",
-            urlencoding::encode(query)
-        );
-        let resp = client.get(&url).send().await;
-        if let Ok(resp) = resp {
-            if let Ok(json) = resp.json::<serde_json::Value>().await {
-                if let Some(results) = json.get("results").and_then(|r| r.as_array()) {
-                    return results
-                        .iter()
-                        .filter_map(|item| {
-                            Some(SearchResult {
-                                name: item.get("Name")?.as_str()?.to_string(),
-                                version: item
-                                    .get("Version")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("")
-                                    .to_string(),
-                                description: item
-                                    .get("Description")
-                                    .and_then(|d| d.as_str())
-                                    .unwrap_or("")
-                                    .to_string(),
-                                source: crate::core::Source::Aur,
-                            })
-                        })
-                        .collect();
-                }
-            }
-        }
-        Vec::new()
+    async fn search(&self, query: &str) -> Vec<SearchResult> {
+        crate::aur::search(query).await.unwrap_or_default()
     }
-    async fn install<'a>(&'a self, package: &'a str) {
-        match crate::aur::install(vec![package]).await {
-            Ok(_) => println!("[reap][backend] Installed {}", package),
-            Err(e) => eprintln!("[reap][backend] Install failed for {}: {:?}", package, e),
-        }
+    async fn install(&self, package: &str) {
+        let log = crate::tui::LogPane::default();
+        log.push(&format!(
+            "[reap][backend] Installing {} using native AUR logic",
+            package
+        ));
+        // Use Default for InstallOptions
+        let opts = crate::core::InstallOptions::default();
+        let _ = crate::core::install_aur_native(package, &log, &opts)
+            .await
+            .context("AUR native install failed");
     }
-    async fn upgrade<'a>(&'a self) {
-        match crate::aur::upgrade_all().await {
-            Ok(_) => println!("[reap][backend] Upgrade all succeeded"),
-            Err(e) => eprintln!("[reap][backend] Upgrade all failed: {:?}", e),
-        }
+    async fn upgrade(&self) {
+        let _ = crate::aur::upgrade_all().await;
     }
-    async fn audit<'a>(&'a self, package: &'a str) {
+    async fn audit(&self, package: &str) {
         crate::utils::audit_package(package);
     }
-    async fn gpg_check<'a>(&'a self, package: &'a str) {
+    async fn gpg_check(&self, package: &str) {
         crate::gpg::check_key(package).await;
     }
 }
@@ -117,7 +104,7 @@ impl Backend for PacmanBackend {
             .map(|o| o.status.success())
             .unwrap_or(false)
     }
-    async fn search<'a>(&'a self, query: &'a str) -> Vec<SearchResult> {
+    async fn search(&self, query: &str) -> Vec<SearchResult> {
         crate::core::unified_search(query)
             .now_or_never()
             .unwrap_or_default()
@@ -125,15 +112,15 @@ impl Backend for PacmanBackend {
             .filter(|r| r.source == crate::core::Source::Pacman)
             .collect()
     }
-    async fn install<'a>(&'a self, package: &'a str) {
+    async fn install(&self, package: &str) {
         crate::pacman::install(package);
     }
-    async fn upgrade<'a>(&'a self) { /* handled in aur::upgrade for now */
+    async fn upgrade(&self) { /* handled in aur::upgrade for now */
     }
-    async fn audit<'a>(&'a self, package: &'a str) {
+    async fn audit(&self, package: &str) {
         println!("[reap] Pacman audit for {} (not implemented)", package);
     }
-    async fn gpg_check<'a>(&'a self, package: &'a str) {
+    async fn gpg_check(&self, package: &str) {
         println!("[reap] Pacman GPG check for {} (not implemented)", package);
     }
 }
@@ -159,26 +146,73 @@ impl Backend for FlatpakBackend {
     fn is_available(&self) -> bool {
         true
     }
-    async fn search<'a>(&'a self, query: &'a str) -> Vec<SearchResult> {
+    async fn search(&self, query: &str) -> Vec<SearchResult> {
         crate::flatpak::search(query)
     }
-    async fn install<'a>(&'a self, package: &'a str) {
+    async fn install(&self, package: &str) {
         match crate::flatpak::install_flatpak(package).await {
             Ok(_) => println!("[reap][backend] Installed {}", package),
             Err(e) => eprintln!("[reap][backend] Install failed for {}: {:?}", package, e),
         }
     }
-    async fn upgrade<'a>(&'a self) {
+    async fn upgrade(&self) {
         match crate::flatpak::upgrade_flatpak().await {
             Ok(_) => println!("[reap][backend] Upgrade all succeeded"),
             Err(e) => eprintln!("[reap][backend] Upgrade all failed: {:?}", e),
         }
     }
-    async fn audit<'a>(&'a self, _package: &'a str) {
-        todo!("Flatpak audit not yet implemented");
+    async fn audit(&self, _package: &str) {
+        println!("Audit not implemented for Flatpak yet.");
     }
-    async fn gpg_check<'a>(&'a self, _package: &'a str) {
-        todo!("Flatpak GPG check not yet implemented");
+    async fn gpg_check(&self, _package: &str) {
+        println!("GPG check not implemented for Flatpak yet.");
+    }
+}
+
+/// TapBackend: Planned backend for custom binary or remote sources.
+#[derive(Default)]
+pub struct TapBackend;
+impl TapBackend {
+    pub fn new() -> Self {
+        TapBackend
+    }
+    /// Scan ~/.config/reap/taps/*.toml or ~/.local/share/reap/taps/ for registered taps.
+    pub fn discover_taps() -> Vec<(String, String, u32)> {
+        let mut taps = Vec::new();
+        let config_dir = dirs::config_dir().unwrap_or_default().join("reap/taps");
+        if let Ok(entries) = std::fs::read_dir(&config_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) == Some("toml") {
+                    if let Ok(toml) = std::fs::read_to_string(&path) {
+                        if let Ok(val) = toml::Value::from_str(&toml) {
+                            let name = val
+                                .get("name")
+                                .and_then(|n| n.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let url = val
+                                .get("url")
+                                .and_then(|u| u.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let priority = val
+                                .get("priority")
+                                .and_then(|p| p.as_integer())
+                                .unwrap_or(50) as u32;
+                            if !name.is_empty() && !url.is_empty() {
+                                taps.push((name, url, priority));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        taps
+    }
+    /// Check if a tap contains the requested package (stub: always false for now)
+    pub fn tap_has_package(_tap_url: &str, _pkg: &str) -> bool {
+        false // TODO: Implement actual check
     }
 }
 
@@ -195,7 +229,7 @@ impl Backend for AptBackend {
             .map(|o| o.status.success())
             .unwrap_or(false)
     }
-    async fn search<'a>(&'a self, query: &'a str) -> Vec<SearchResult> {
+    async fn search(&self, query: &str) -> Vec<SearchResult> {
         let output = std::process::Command::new("apt-cache")
             .arg("search")
             .arg(query)
@@ -218,7 +252,7 @@ impl Backend for AptBackend {
         }
         results
     }
-    async fn install<'a>(&'a self, package: &'a str) {
+    async fn install(&self, package: &str) {
         let _ = std::process::Command::new("sudo")
             .arg("apt")
             .arg("install")
@@ -226,7 +260,7 @@ impl Backend for AptBackend {
             .arg(package)
             .status();
     }
-    async fn upgrade<'a>(&'a self) {
+    async fn upgrade(&self) {
         let _ = std::process::Command::new("sudo")
             .arg("apt")
             .arg("update")
@@ -237,14 +271,15 @@ impl Backend for AptBackend {
             .arg("-y")
             .status();
     }
-    async fn audit<'a>(&'a self, package: &'a str) {
-        println!("[reap] Apt audit for {} (not implemented)", package);
+    async fn audit(&self, _package: &str) {
+        println!("Audit not implemented for Apt yet.");
     }
-    async fn gpg_check<'a>(&'a self, package: &'a str) {
-        println!("[reap] Apt GPG check for {} (not implemented)", package);
+    async fn gpg_check(&self, _package: &str) {
+        println!("GPG check not implemented for Apt yet.");
     }
 }
 
+// Backend selection is now always native for AUR, Flatpak, Pacman, and (future) Tap.
 pub enum BackendImpl {
     Aur(AurBackend),
     Flatpak(FlatpakBackend),

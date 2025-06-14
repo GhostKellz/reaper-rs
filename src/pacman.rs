@@ -45,6 +45,17 @@ pub fn get_version(pkg: &str) -> Option<String> {
 }
 
 pub fn list_installed_aur() -> Vec<String> {
-    // TODO: Implement real list
-    vec![]
+    let output = std::process::Command::new("pacman").arg("-Qm").output();
+    if let Ok(out) = output {
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        stdout
+            .lines()
+            .filter_map(|line| line.split_whitespace().next())
+            .map(|s| s.to_string())
+            .collect()
+    } else {
+        Vec::new()
+    }
 }
+
+// No async/parallel flows in pacman.rs; nothing to change for prompt 2

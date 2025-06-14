@@ -1,5 +1,6 @@
 use crate::aur::SearchResult;
 use crate::core::Source;
+use anyhow::Result;
 use std::process::Command;
 
 // Flatpak integration (scaffold)
@@ -47,6 +48,17 @@ pub fn search(query: &str) -> Vec<SearchResult> {
 
 // Example usage: call flatpak::search from CLI or TUI for Flatpak search
 
+/// Installs a Flatpak package.
+///
+/// # Arguments
+///
+/// * `pkg` - A string slice that holds the package name to be installed.
+///
+/// # Example
+///
+/// ```
+/// flatpak::install("com.example.App");
+/// ```
 pub fn install(pkg: &str) {
     let _ = Command::new("flatpak")
         .arg("install")
@@ -55,6 +67,28 @@ pub fn install(pkg: &str) {
         .status();
 }
 
+/// Installs a Flatpak package asynchronously.
+///
+/// # Arguments
+///
+/// * `pkg` - A string slice that holds the package name to be installed.
+///
+/// # Errors
+///
+/// Returns an error if the installation fails.
+///
+/// # Example
+///
+/// ```no_run
+/// use crate::flatpak;
+///
+/// #[tokio::main]
+/// async fn main() {
+///     if let Err(e) = flatpak::install_flatpak("com.example.App").await {
+///         eprintln!("Error installing package: {}", e);
+///     }
+/// }
+/// ```
 pub async fn install_flatpak(pkg: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("[reap][flatpak] Installing {}...", pkg);
     let status = Command::new("flatpak")
@@ -70,6 +104,13 @@ pub async fn install_flatpak(pkg: &str) -> Result<(), Box<dyn std::error::Error 
     }
 }
 
+/// Upgrades all installed Flatpak packages.
+///
+/// # Example
+///
+/// ```
+/// flatpak::upgrade();
+/// ```
 pub fn upgrade() {
     println!("[reap] flatpak :: Upgrading all flatpak packages...");
     let status = Command::new("flatpak").arg("update").arg("-y").status();
@@ -79,6 +120,24 @@ pub fn upgrade() {
     }
 }
 
+/// Upgrades all installed Flatpak packages asynchronously.
+///
+/// # Errors
+///
+/// Returns an error if the upgrade process fails.
+///
+/// # Example
+///
+/// ```no_run
+/// use crate::flatpak;
+///
+/// #[tokio::main]
+/// async fn main() {
+///     if let Err(e) = flatpak::upgrade_flatpak().await {
+///         eprintln!("Error upgrading packages: {}", e);
+///     }
+/// }
+/// ```
 pub async fn upgrade_flatpak() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("[reap][flatpak] Upgrading all flatpak packages...");
     let status = Command::new("flatpak").arg("update").arg("-y").status()?;
@@ -91,6 +150,17 @@ pub async fn upgrade_flatpak() -> Result<(), Box<dyn std::error::Error + Send + 
 }
 // Example usage: call flatpak::upgrade from CLI or TUI for Flatpak upgrade
 
+/// Prints sandbox information for a Flatpak package.
+///
+/// # Arguments
+///
+/// * `pkg` - A string slice that holds the package name.
+///
+/// # Example
+///
+/// ```
+/// flatpak::print_flatpak_sandbox_info("com.example.App");
+/// ```
 pub fn print_flatpak_sandbox_info(pkg: &str) {
     let output = Command::new("flatpak").arg("info").arg(pkg).output();
     if let Ok(out) = output {
@@ -106,3 +176,7 @@ pub fn print_flatpak_sandbox_info(pkg: &str) {
     }
 }
 // Example usage: call print_flatpak_sandbox_info in TUI/CLI details
+
+// Ensure all async/parallel flows use owned values or Arc<T> in async blocks
+// Use Arc::clone for shared state if needed
+// Add explicit return types for async blocks using ?

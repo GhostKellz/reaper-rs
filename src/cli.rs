@@ -3,8 +3,9 @@ use clap::{Parser, Subcommand};
 #[derive(Parser, Debug)]
 #[command(
     name = "reap",
-    version = "0.1.0",
-    about = "Reaper: Secure, unified Rust-powered meta package manager"
+    version = "0.3.0",
+    about = "Reaper: Secure, unified Rust-powered meta package manager\n\nUSAGE EXAMPLES:\n  reap install <pkg> --fast\n  reap install <pkg> --strict\n  reap install <pkg> --insecure\n  reap tap add mytap https://github.com/me/mytap.git\n  reap doctor --fix\n\nConfig precedence: CLI flag > ~/.config/reap/reap.toml > default\nSee README.md for more.",
+    long_about = None
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -53,6 +54,21 @@ pub struct Cli {
         help = "Automatically install missing dependencies before build"
     )]
     pub resolve_deps: bool,
+    #[arg(
+        long = "insecure",
+        help = "Skip GPG verification for tap installs (not recommended)"
+    )]
+    pub insecure: bool,
+    #[arg(
+        long = "gpg-keyserver",
+        value_name = "URL",
+        help = "Set GPG keyserver for key fetch"
+    )]
+    pub gpg_keyserver: Option<String>,
+    #[arg(long = "audit", help = "Audit/log actions without executing them")]
+    pub audit: bool,
+    #[arg(long = "yes", help = "Assume yes for all prompts (non-interactive)")]
+    pub yes: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -119,6 +135,11 @@ pub enum Commands {
         #[arg(long = "all", help = "Include orphaned pacman packages, not just AUR")]
         all: bool,
     },
+    /// Manage global configuration
+    Config {
+        #[command(subcommand)]
+        cmd: ConfigCmd,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -142,6 +163,33 @@ pub enum GpgCmd {
 
 #[derive(Subcommand, Debug)]
 pub enum TapCmd {
-    Add { name: String, url: String },
+    Add {
+        name: String,
+        url: String,
+        #[arg(long)]
+        priority: Option<u8>,
+    },
+    Remove {
+        name: String,
+    },
+    Enable {
+        name: String,
+    },
+    Disable {
+        name: String,
+    },
+    Sync,
     List,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ConfigCmd {
+    /// Set a config key
+    Set { key: String, value: String },
+    /// Get a config key
+    Get { key: String },
+    /// Reset config to defaults
+    Reset,
+    /// Show full config
+    Show,
 }

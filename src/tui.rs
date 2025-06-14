@@ -1,16 +1,21 @@
+// Remove any dead/legacy code, ensure all log output uses LogPane, and document hooks
+
 use crate::aur;
 use crate::aur::SearchResult;
 use crate::core;
 use crate::core::get_installed_packages;
 use crossterm::event::{self, Event, KeyCode};
-use mlua::Lua;
+use ratatui::Frame;
 use ratatui::prelude::{Constraint, Direction, Layout};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Tabs};
-use ratatui::Frame;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
+use tokio::sync::Semaphore;
+use tokio::time::{Duration, sleep};
 
+#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SearchSource {
     Aur,
@@ -30,6 +35,7 @@ impl SearchSource {
             SearchSource::GhostctlAur => "GhostctlAUR",
         }
     }
+    #[allow(dead_code)]
     fn all() -> &'static [SearchSource] {
         &[
             Self::Aur,
@@ -46,7 +52,6 @@ struct SearchTab {
     source: SearchSource,
     results: Vec<SearchResult>,
     selected: usize,
-    sources: Vec<SearchSource>,
 }
 
 impl SearchTab {
@@ -56,7 +61,6 @@ impl SearchTab {
             source: SearchSource::Aur,
             results: Vec::new(),
             selected: 0,
-            sources: SearchSource::all().to_vec(),
         }
     }
     async fn do_search(&mut self) {
@@ -92,8 +96,8 @@ fn search_pacman_like(query: &str, repo: Option<&str>) -> Vec<SearchResult> {
         let stdout = String::from_utf8_lossy(&out.stdout);
         for line in stdout.lines() {
             let mut parts = line.split_whitespace();
-            let pkg = parts.nth(0).unwrap_or("");
-            let version = parts.nth(0).unwrap_or("");
+            let pkg = parts.next().unwrap_or("");
+            let version = parts.next().unwrap_or("");
             let desc = parts.collect::<Vec<_>>().join(" ");
             if !pkg.is_empty() {
                 results.push(SearchResult {
@@ -108,6 +112,7 @@ fn search_pacman_like(query: &str, repo: Option<&str>) -> Vec<SearchResult> {
     results
 }
 
+// Ensure InstallQueue uses Arc<Mutex<Vec<core::InstallTask>>> and all async methods use Arc<LogPane>
 struct InstallQueue {
     tasks: Arc<Mutex<Vec<core::InstallTask>>>,
 }
@@ -130,8 +135,43 @@ impl InstallQueue {
             None
         }
     }
-    fn is_empty(&self) -> bool {
-        self.tasks.lock().unwrap().is_empty()
+    pub async fn process(&self, log_pane: Arc<LogPane>, backend: &str) {
+        let semaphore = Arc::new(Semaphore::new(4));
+        let mut handles = Vec::new();
+        let mut completed = 0;
+        let total = self.tasks.lock().unwrap().len();
+        while let Some(task) = self.pop() {
+            let permit = semaphore.clone().acquire_owned().await.unwrap();
+            let log_pane_task = Arc::clone(&log_pane);
+            let backend = backend.to_string();
+            handles.push(tokio::spawn(async move {
+                match backend.as_str() {
+                    "pacman" => {
+                        let status = std::process::Command::new("pacman").status();
+                        match status {
+                            Ok(s) if s.success() => log_pane_task.push("[tui] Pacman install succeeded."),
+                            Ok(_) | Err(_) => log_pane_task.push("[tui] Pacman install failed."),
+                        }
+                    }
+                    "flatpak" => {
+                        crate::flatpak::install(&task.pkg);
+                        log_pane_task.push("[tui] Flatpak install attempted.");
+                    }
+                    _ => {
+                        log_pane_task.push("[tui] Unknown backend.");
+                    }
+                }
+                drop(permit);
+            }));
+            completed += 1;
+            log_pane.push(&format!(
+                "[reap][queue] Progress: {}/{} tasks complete",
+                completed, total
+            ));
+            sleep(Duration::from_millis(300)).await;
+        }
+        for h in handles { let _ = h.await; }
+        log_pane.push("[reap][queue] All install tasks complete.");
     }
 }
 
@@ -167,21 +207,6 @@ impl Default for LogPane {
     }
 }
 
-fn run_lua_hook(hook: &str, pkg: &str) {
-    let config_path = dirs::home_dir()
-        .unwrap_or_default()
-        .join(".config/reaper/brew.lua");
-    if let Ok(script) = std::fs::read_to_string(&config_path) {
-        let lua = Lua::new();
-        if lua.load(&script).exec().is_ok() {
-            let globals = lua.globals();
-            if let Ok(func) = globals.get::<_, mlua::Function>(hook) {
-                let _ = func.call::<_, ()>(pkg);
-            }
-        }
-    }
-}
-
 struct DiffViewer {
     lines: Vec<(char, String)>, // ('-', '+', ' ') and line
     scroll: usize,
@@ -199,11 +224,7 @@ impl DiffViewer {
         }
         Self { lines, scroll: 0 }
     }
-    fn render(
-        &self,
-        f: &mut Frame<'_>,
-        area: ratatui::layout::Rect,
-    ) {
+    fn render(&self, f: &mut Frame<'_>, area: ratatui::layout::Rect) {
         let items: Vec<Line> = self
             .lines
             .iter()
@@ -227,17 +248,19 @@ impl DiffViewer {
     }
 }
 
-#[allow(dead_code)]
+/// Launch the TUI for package searching and installation
 pub async fn launch_tui() {
+    let start = Instant::now();
     let mut terminal = setup_terminal();
     let mut search_tab = SearchTab::new();
     let mut tab_idx = 0;
-    let tab_titles = vec!["Search", "Queue", "Log"];
+    let tab_titles = ["Search", "Queue", "Log"];
     let log_pane = Arc::new(LogPane::new());
     let mut log_scroll = 0usize;
-    let install_queue = InstallQueue::new();
+    let install_queue = Arc::new(InstallQueue::new());
     let installed = core::get_installed_packages();
     let mut diff_viewer: Option<DiffViewer> = None;
+    let backend = "aur"; // Example backend, can be dynamic
 
     loop {
         terminal
@@ -252,14 +275,20 @@ pub async fn launch_tui() {
                         Constraint::Length(2),
                     ])
                     .split(size);
-                let tabs = Tabs::new(tab_titles.iter().cloned().map(String::from).collect::<Vec<_>>())
-                    .block(Block::default().borders(Borders::ALL).title("Tabs"))
-                    .select(tab_idx)
-                    .highlight_style(
-                        Style::default()
-                            .fg(Color::Yellow)
-                            .add_modifier(Modifier::BOLD),
-                    );
+                let tabs = Tabs::new(
+                    tab_titles
+                        .iter()
+                        .cloned()
+                        .map(String::from)
+                        .collect::<Vec<_>>(),
+                )
+                .block(Block::default().borders(Borders::ALL).title("Tabs"))
+                .select(tab_idx)
+                .highlight_style(
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                );
                 f.render_widget(tabs, chunks[0]);
                 match tab_idx {
                     0 => {
@@ -374,15 +403,18 @@ pub async fn launch_tui() {
                             } else {
                                 let task = core::InstallTask {
                                     pkg: pkg.name.clone(),
-                                    edit: false,
                                     confirm: true,
-                                    dry_run: false,
                                     source: pkg.source.clone(),
                                     repo_name: None,
                                 };
                                 install_queue.enqueue(task);
                                 log_pane
                                     .push(&format!("[reap] Added {} to install queue", pkg.name));
+                                let queue = Arc::clone(&install_queue);
+                                let log_pane = log_pane.clone();
+                                tokio::spawn(async move {
+                                    queue.process(log_pane, backend).await;
+                                });
                             }
                         }
                     }
@@ -391,9 +423,12 @@ pub async fn launch_tui() {
             }
         }
     }
+    let elapsed = start.elapsed();
+    println!("[tui] Session duration: {:?}", elapsed);
     restore_terminal();
 }
 
+/// Run the UI for managing installed packages
 pub async fn run_ui() {
     use crate::utils;
     use crossterm::{event, terminal};

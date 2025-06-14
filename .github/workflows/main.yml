@@ -27,8 +27,11 @@ jobs:
       - name: Format Check
         run: cargo fmt --check
 
-      - name: Build
-        run: cargo build --verbose
+      - name: Build (feature matrix)
+        run: |
+          cargo build --release --features cache
+          cargo build --release --features "cache flatpak"
+      # TODO: Add cross-platform build for aarch64/musl if needed
 
       - name: Test
         run: cargo test --verbose

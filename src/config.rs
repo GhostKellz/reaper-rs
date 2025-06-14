@@ -1,44 +1,156 @@
-use mlua::Lua;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use toml_edit::{DocumentMut, value};
 
+#[derive(Debug, Clone)]
+pub struct PerfConfig {
+    pub fast_mode: Option<bool>,
+    pub max_parallel: Option<usize>,
+}
+#[derive(Debug, Clone)]
+pub struct SecurityConfig {
+    pub strict_signatures: Option<bool>,
+    pub allow_insecure: Option<bool>,
+}
+
+#[derive(Debug, Clone)]
 pub struct ReapConfig {
-    /// Packages to ignore during upgrades (from Lua config)
+    /// Packages to ignore during upgrades
     pub ignored_packages: Vec<String>,
-    /// Number of parallel jobs for install/upgrade (from Lua config)
-    #[allow(dead_code)]
+    /// Number of parallel jobs for install/upgrade
     pub parallel: usize,
-    // Add more config fields as needed
+    pub perf: Option<PerfConfig>,
+    pub security: Option<SecurityConfig>,
 }
 
 impl ReapConfig {
     pub fn load() -> Self {
-        let config_path = dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("/tmp"))
-            .join(".config/reap/brew.lua");
-        let lua = Lua::new();
-        let mut ignored_packages = Vec::new();
-        let mut parallel = 2;
-        if let Ok(script) = fs::read_to_string(&config_path) {
-            if let Ok(table) = lua.load(&script).eval::<mlua::Table>() {
-                if let Ok(pkgs) = table.get::<_, mlua::Table>("ignored_packages") {
-                    for pkg in pkgs.sequence_values::<String>().flatten() {
-                        ignored_packages.push(pkg);
-                    }
-                }
-                if let Ok(p) = table.get::<_, usize>("parallel") {
-                    parallel = p;
-                }
-            }
-        }
+        let global = GlobalConfig::load();
         ReapConfig {
-            ignored_packages,
-            parallel,
+            ignored_packages: vec![],
+            parallel: global.enable_cache.map(|x| if x { 4 } else { 2 }).unwrap_or(2),
+            perf: Some(PerfConfig {
+                fast_mode: global.enable_cache,
+                max_parallel: Some(4),
+            }),
+            security: Some(SecurityConfig {
+                strict_signatures: Some(global.enable_lua_hooks.unwrap_or(false)),
+                allow_insecure: Some(true),
+            }),
         }
     }
-
     /// Check if a package is ignored (used in upgrade/install logic)
     pub fn is_ignored(&self, pkg: &str) -> bool {
         self.ignored_packages.iter().any(|p| p == pkg)
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GlobalConfig {
+    pub backend_order: Vec<String>,
+    pub auto_resolve_deps: bool,
+    pub noconfirm: bool,
+    pub log_verbose: bool,
+    pub theme: Option<String>,
+    pub show_tips: Option<bool>,
+    pub enable_cache: Option<bool>,
+    pub enable_lua_hooks: Option<bool>,
+}
+
+impl Default for GlobalConfig {
+    fn default() -> Self {
+        Self {
+            backend_order: vec![
+                "tap".to_string(),
+                "aur".to_string(),
+                "pacman".to_string(),
+                "flatpak".to_string(),
+            ],
+            auto_resolve_deps: true,
+            noconfirm: true,
+            log_verbose: true,
+            theme: Some("dark".to_string()),
+            show_tips: Some(false),
+            enable_cache: Some(true),
+            enable_lua_hooks: Some(false),
+        }
+    }
+}
+
+impl GlobalConfig {
+    pub fn load() -> Self {
+        let config_path = dirs::config_dir()
+            .unwrap_or_else(|| PathBuf::from("/tmp"))
+            .join("reap/reap.toml");
+
+        if config_path.exists() {
+            println!("[config] Found config at {}", config_path.display());
+
+            if let Ok(contents) = fs::read_to_string(&config_path) {
+                match toml::from_str::<GlobalConfig>(&contents) {
+                    Ok(cfg) => return cfg,
+                    Err(e) => {
+                        eprintln!("[config] Failed to parse: {e}");
+                    }
+                }
+            }
+        }
+
+        println!("[config] Using default config.");
+        GlobalConfig::default()
+    }
+}
+
+pub fn set_config_key(key: &str, value_str: &str) {
+    let path = config_path();
+    let mut doc = if path.exists() {
+        fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| s.parse::<DocumentMut>().ok())
+            .unwrap_or_default()
+    } else {
+        DocumentMut::new()
+    };
+    doc[key] = value(value_str);
+    let _ = fs::write(&path, doc.to_string());
+}
+
+pub fn get_config_key(key: &str) -> Option<String> {
+    let path = config_path();
+    if path.exists() {
+        if let Some(Ok(doc)) = fs::read_to_string(&path)
+            .ok()
+            .map(|s| s.parse::<DocumentMut>())
+        {
+            if let Some(val) = doc.get(key) {
+                return Some(val.to_string());
+            }
+        }
+    }
+    None
+}
+
+pub fn reset_config() {
+    let path = config_path();
+    let _ = fs::write(&path, toml::to_string(&GlobalConfig::default()).unwrap());
+}
+
+pub fn show_config() {
+    let path = config_path();
+    if path.exists() {
+        if let Ok(contents) = fs::read_to_string(&path) {
+            println!("{}", contents);
+        }
+    } else {
+        println!("No config file found at {}", path.display());
+    }
+}
+
+pub fn config_path() -> std::path::PathBuf {
+    dirs::config_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
+        .join("reap/reap.toml")
+}
+
+// Config precedence: CLI flag > ~/.config/reap/reap.toml > default

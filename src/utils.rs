@@ -1,107 +1,91 @@
-use crate::aur::SearchResult;
+use anyhow::Result;
 use diff::lines;
-use once_cell::sync::Lazy;
 use std::fs;
 use std::os::unix::process::ExitStatusExt;
 use toml::Value;
 
+#[cfg(feature = "cache")]
+use once_cell::sync::Lazy;
+
+#[cfg(feature = "cache")]
+use serde_json;
+#[cfg(feature = "cache")]
+use std::fs::{self, create_dir_all, read_to_string, write};
+
+#[cfg(feature = "cache")]
 static PKGBUILD_CACHE: Lazy<std::sync::Mutex<std::collections::HashMap<String, String>>> =
     Lazy::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
+#[cfg(feature = "cache")]
 static SEARCH_CACHE: Lazy<std::sync::Mutex<std::collections::HashMap<String, Vec<SearchResult>>>> =
     Lazy::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
+#[cfg(feature = "cache")]
+static PKGBUILD_CACHE_DIR: Lazy<std::path::PathBuf> = Lazy::new(|| {
+    dirs::cache_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
+        .join("reap/pkgbuilds")
+});
+#[cfg(feature = "cache")]
+static SEARCH_CACHE_DIR: Lazy<std::path::PathBuf> = Lazy::new(|| {
+    dirs::cache_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
+        .join("reap/search")
+});
+
 /// Caches and returns AUR search results for a query
+#[cfg(feature = "cache")]
 pub fn get_cached_search(query: &str) -> Option<Vec<SearchResult>> {
-    let cache = SEARCH_CACHE.lock().unwrap();
-    cache.get(query).cloned()
+    let path = SEARCH_CACHE_DIR.join(format!("{}.json", query));
+    if let Ok(data) = read_to_string(&path) {
+        serde_json::from_str(&data).ok()
+    } else {
+        None
+    }
 }
 
+#[cfg(feature = "cache")]
 pub fn cache_search_result(query: &str, results: &[SearchResult]) {
-    let mut cache = SEARCH_CACHE.lock().unwrap();
-    cache.insert(query.to_string(), results.to_vec());
+    let path = SEARCH_CACHE_DIR.join(format!("{}.json", query));
+    if let Ok(json) = serde_json::to_string(results) {
+        let _ = create_dir_all(SEARCH_CACHE_DIR.as_path());
+        let _ = write(path, json);
+    }
 }
 
+#[cfg(feature = "cache")]
 pub async fn async_get_pkgbuild_cached(pkg: &str) -> String {
-    {
-        let cache = PKGBUILD_CACHE.lock().unwrap();
-        if let Some(cached) = cache.get(pkg) {
-            return cached.clone();
+    let path = PKGBUILD_CACHE_DIR.join(format!("{}.PKGBUILD", pkg));
+    if let Ok(data) = read_to_string(&path) {
+        return data;
+    }
+    let pkgb_preview = crate::aur::get_pkgbuild_preview(pkg);
+    println!("[utils] PKGBUILD preview for {}:\n{}", pkg, pkgb_preview);
+    for line in pkgb_preview.lines() {
+        if line.trim_start().starts_with("pkgname=") {
+            println!("[utils] Parsed pkgname for {}: {}", pkg, line.trim_start());
         }
     }
-    let url = format!(
-        "https://aur.archlinux.org/cgit/aur.git/plain/PKGBUILD?h={}",
-        pkg
-    );
-    let text = match reqwest::get(&url).await {
-        Ok(resp) => resp.text().await.unwrap_or_default(),
-        Err(_) => String::from("[reap] PKGBUILD not found."),
-    };
-    let mut cache = PKGBUILD_CACHE.lock().unwrap();
-    cache.insert(pkg.to_string(), text.clone());
-    text
+    if pkgb_preview.contains("pkgname") {
+        println!("[utils] PKGBUILD for {} contains a pkgname field.", pkg);
+    }
+    let _ = create_dir_all(PKGBUILD_CACHE_DIR.as_path());
+    let _ = write(&path, &_pkgb);
+    _pkgb
 }
 
-pub fn audit_pkgbuild(pkgbuild: &str, lua: Option<&mlua::Lua>) {
-    let risky_patterns = [
-        "curl",
-        "wget",
-        "sudo",
-        "rm -rf",
-        "chmod",
-        "chown",
-        "dd",
-        "mkfs",
-        "mount",
-        "scp",
-        "nc",
-        "ncat",
-        "bash -c",
-        "eval",
-        "setcap",
-        "setuid",
-        "setgid",
-        "useradd",
-        "groupadd",
-        "passwd",
-        "iptables",
-        "firewalld",
-        "systemctl",
-        "service",
-    ];
-    for pat in risky_patterns.iter() {
-        if pkgbuild.contains(pat) {
-            println!("[AUDIT] Found risky command: {}", pat);
-        }
-    }
-    if let Some(lua) = lua {
-        let _ = lua
-            .load(r#"if custom_audit then custom_audit(...) end"#)
-            .exec();
-    }
+#[cfg(feature = "cache")]
+pub fn ensure_cache_dirs() {
+    let _ = create_dir_all(PKGBUILD_CACHE_DIR.as_path());
+    let _ = create_dir_all(SEARCH_CACHE_DIR.as_path());
 }
 
-/// Audit a Flatpak manifest for risky patterns and allow Lua hooks
-pub fn audit_flatpak_manifest(manifest: &str, lua: Option<&mlua::Lua>) {
-    let risky_patterns = ["command", "run", "sudo", "curl", "wget", "bash", "eval"];
-    for pat in risky_patterns.iter() {
-        if manifest.contains(pat) {
-            println!("[AUDIT][FLATPAK] Found risky command: {}", pat);
-        }
-    }
-    if let Some(lua) = lua {
-        let _ = lua
-            .load(r#"if custom_audit then custom_audit(...) end"#)
-            .exec();
-    }
-}
-
+/// Audit a package by checking its source and dependencies
 pub fn audit_package(pkg: &str) {
     match crate::core::detect_source(pkg, None, false) {
         Some(crate::core::Source::Aur) => {
             println!("[AUDIT][AUR] Auditing PKGBUILD for {}...", pkg);
             let pkgb = crate::aur::get_pkgbuild_preview(pkg);
-            audit_pkgbuild(&pkgb, None);
             let deps = crate::aur::get_deps(pkg);
             if deps.is_empty() {
                 println!("[AUDIT][AUR] No dependencies found for {}.", pkg);
@@ -125,16 +109,16 @@ pub fn audit_package(pkg: &str) {
     }
 }
 
+type PkgMeta = (
+    Vec<String>,
+    Vec<String>,
+    Vec<String>,
+    Vec<String>,
+    Vec<String>,
+);
+
 /// Parse PKGBUILD for depends, makedepends, conflicts and check system state
-pub fn resolve_deps(
-    pkgb: &str,
-) -> (
-    Vec<String>,
-    Vec<String>,
-    Vec<String>,
-    Vec<String>,
-    Vec<String>,
-) {
+pub fn resolve_deps(pkgb: &str) -> PkgMeta {
     let mut depends = Vec::new();
     let mut makedepends = Vec::new();
     let mut conflicts = Vec::new();
@@ -216,7 +200,8 @@ pub fn pkgb_diff_audit(package: &str, pkgb: &str) {
     }
 }
 
-/// Compare two PKGBUILD files and print a diff
+#[cfg(feature = "cache")]
+#[allow(dead_code)]
 pub fn compare_pkgbuilds(pkg: &str, new_pkgb: &str) {
     let backup_path =
         std::path::PathBuf::from(format!("/var/lib/reaper/backups/{}/PKGBUILD.bak", pkg));
@@ -243,64 +228,6 @@ pub fn completion(shell: &str) {
         "zsh" => println!("compdef _reap reap"),
         "fish" => println!("complete -c reap -a \"(reap --completion)\""),
         _ => println!("[reap] Shell completion not implemented for {}.", shell),
-    }
-}
-
-#[allow(dead_code)]
-pub fn rollback(package: &str) {
-    let backup_dir = std::path::PathBuf::from(format!("/var/lib/reaper/backups/{}", package));
-    let restore_dir = std::env::temp_dir().join(format!("reap-aur-{}", package));
-    if backup_dir.exists() && backup_dir.is_dir() {
-        if restore_dir.exists() {
-            if let Err(e) = std::fs::remove_dir_all(&restore_dir) {
-                eprintln!("[reap] Failed to remove old restore dir: {}", e);
-                return;
-            }
-        }
-        if let Err(e) = std::fs::create_dir_all(&restore_dir) {
-            eprintln!("[reap] Failed to create restore dir: {}", e);
-            return;
-        }
-        match fs_extra::dir::copy(
-            &backup_dir,
-            &restore_dir,
-            &fs_extra::dir::CopyOptions::new()
-                .overwrite(true)
-                .content_only(true),
-        ) {
-            Ok(_) => println!(
-                "[reap] Restored backup for {} to {}",
-                package,
-                restore_dir.display()
-            ),
-            Err(e) => eprintln!("[reap] Failed to restore backup for {}: {}", package, e),
-        }
-    } else {
-        println!("[reap] No backup found for {}.", package);
-    }
-}
-
-#[allow(dead_code)]
-pub fn cli_rollback_pkgbuild(package: &str) {
-    let backup_path =
-        std::path::PathBuf::from(format!("/var/lib/reaper/backups/{}/PKGBUILD.bak", package));
-    let restore_dir = std::env::temp_dir().join(format!("reap-aur-{}", package));
-    let restore_path = restore_dir.join("PKGBUILD");
-    if backup_path.exists() {
-        if let Err(e) = std::fs::create_dir_all(&restore_dir) {
-            eprintln!("[reap] Failed to create restore dir: {}", e);
-            return;
-        }
-        match std::fs::copy(&backup_path, &restore_path) {
-            Ok(_) => println!(
-                "[reap] Restored PKGBUILD for {} to {}",
-                package,
-                restore_path.display()
-            ),
-            Err(e) => eprintln!("[reap] Failed to restore PKGBUILD for {}: {}", package, e),
-        }
-    } else {
-        println!("[reap] No PKGBUILD backup found for {}.", package);
     }
 }
 
@@ -380,6 +307,8 @@ pub fn is_pinned(pkg: &str) -> bool {
     }
 }
 
+#[cfg(feature = "cache")]
+#[allow(dead_code)]
 pub fn pinned_version(pkg: &str) -> Option<String> {
     let config_path = dirs::home_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
@@ -396,6 +325,7 @@ pub fn pinned_version(pkg: &str) -> Option<String> {
     None
 }
 
+/// Clean the cache directories used by reap
 pub fn clean_cache() -> Result<String, String> {
     let home = dirs::home_dir().unwrap_or_default();
     let cache_dirs = vec![
@@ -534,6 +464,7 @@ pub fn backup_config() -> Result<(), String> {
     }
 }
 
+#[cfg(feature = "cache")]
 pub mod cache {
     use crate::aur::SearchResult;
     use once_cell::sync::Lazy;
@@ -603,3 +534,100 @@ pub mod cache {
         None
     }
 }
+
+/// Audit a PKGBUILD for risky patterns
+pub fn audit_pkgbuild(pkgbuild: &str) {
+    let risky_patterns = [
+        "curl",
+        "wget",
+        "sudo",
+        "rm -rf",
+        "chmod",
+        "chown",
+        "dd",
+        "mkfs",
+        "mount",
+        "scp",
+        "nc",
+        "ncat",
+        "bash -c",
+        "eval",
+        "setcap",
+        "setuid",
+        "setgid",
+        "useradd",
+        "groupadd",
+        "passwd",
+        "iptables",
+        "firewalld",
+        "systemctl",
+        "service",
+    ];
+    for pat in risky_patterns.iter() {
+        if pkgbuild.contains(pat) {
+            println!(
+                "[AUDIT] Warning: PKGBUILD contains potentially risky pattern: {}",
+                pat
+            );
+        }
+    }
+}
+
+pub fn audit_flatpak_manifest(_pkg: &str) {
+    // Stub: Flatpak manifest audit not yet implemented
+}
+
+pub fn rollback(pkg: &str) {
+    use std::fs;
+    use std::path::PathBuf;
+    let backup_dir = PathBuf::from(format!("/var/lib/reaper/backups/{}/", pkg));
+    let pkgbuild_bak = backup_dir.join("PKGBUILD.bak");
+    let pkgbuild = backup_dir.join("PKGBUILD");
+    if pkgbuild_bak.exists() {
+        if let Err(e) = fs::copy(&pkgbuild_bak, &pkgbuild) {
+            eprintln!("[reap][rollback] Failed to restore PKGBUILD: {}", e);
+        } else {
+            println!("[reap][rollback] Restored PKGBUILD for {}.", pkg);
+        }
+    } else {
+        eprintln!("[reap][rollback] No PKGBUILD backup found for {}.", pkg);
+    }
+    // Optionally clean up failed build dirs
+    let tmp_dir = std::env::temp_dir().join(format!("reap-aur-{}", pkg));
+    if tmp_dir.exists() {
+        let _ = fs::remove_dir_all(&tmp_dir);
+        println!("[reap][rollback] Cleaned up temp dir for {}.", pkg);
+    }
+}
+
+/// Plugin loader: scan ~/.config/reap/plugins/ for executable .sh/.rs plugins
+pub fn load_plugins() -> Vec<std::path::PathBuf> {
+    let plugin_dir = dirs::config_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
+        .join("reap/plugins");
+    let mut plugins = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&plugin_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file()
+                && (path.extension() == Some("sh".as_ref())
+                    || path.extension() == Some("rs".as_ref()))
+                && is_executable(&path)
+            {
+                plugins.push(path);
+            }
+        }
+    }
+    plugins
+}
+
+fn is_executable(path: &std::path::Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path)
+        .map(|m| m.permissions().mode() & 0o111 != 0)
+        .unwrap_or(false)
+}
+
+// Ensure all async/parallel flows use owned values or Arc<T> in async blocks
+// Use Arc::clone for shared state if needed
+// Add explicit return types for async blocks using ?

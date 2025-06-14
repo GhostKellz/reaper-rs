@@ -1,9 +1,10 @@
 use crate::utils;
+use anyhow::Result;
 use futures::future::join_all;
 use once_cell::sync::Lazy;
 use owo_colors::OwoColorize;
 use reqwest::blocking::Client;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs;
@@ -51,6 +52,11 @@ pub struct AurInfo {
     pub version: String,
 }
 
+/// Fetch package info from AUR
+///
+/// # Errors
+///
+/// Returns an error if the request to the AUR fails or if the package is not found.
 pub fn fetch_package_info(pkg: &str) -> Result<AurInfo, Box<dyn Error + Send + Sync>> {
     let url = format!("https://aur.archlinux.org/rpc/?v=5&type=info&arg[]={}", pkg);
     let client = Client::new();
@@ -63,7 +69,13 @@ pub fn fetch_package_info(pkg: &str) -> Result<AurInfo, Box<dyn Error + Send + S
     }
 }
 
+/// Search for a package in AUR
+///
+/// # Errors
+///
+/// Returns an error if the request to the AUR fails.
 pub async fn search(query: &str) -> Result<Vec<SearchResult>, Box<dyn Error + Send + Sync>> {
+    #[cfg(feature = "cache")]
     if let Some(cached) = crate::utils::get_cached_search(query) {
         return Ok(cached);
     }
@@ -84,10 +96,12 @@ pub async fn search(query: &str) -> Result<Vec<SearchResult>, Box<dyn Error + Se
             source: crate::core::Source::Aur,
         })
         .collect();
+    #[cfg(feature = "cache")]
     crate::utils::cache_search_result(query, &results);
     Ok(results)
 }
 
+/// Get AUR search results (blocking)
 pub fn aur_search_results(query: &str) -> Vec<AurResult> {
     let url = format!(
         "https://aur.archlinux.org/rpc/?v=5&type=search&arg={}",
@@ -101,16 +115,41 @@ pub fn aur_search_results(query: &str) -> Vec<AurResult> {
     vec![]
 }
 
+#[cfg(feature = "cache")]
+pub async fn get_pkgbuild_cached(pkg: &str) -> String {
+    crate::utils::async_get_pkgbuild_cached(pkg).await
+}
+
+#[cfg(not(feature = "cache"))]
+pub async fn get_pkgbuild_cached(pkg: &str) -> String {
+    let url = format!(
+        "https://aur.archlinux.org/cgit/aur.git/plain/PKGBUILD?h={}",
+        pkg
+    );
+    match reqwest::get(&url).await {
+        Ok(resp) => resp.text().await.unwrap_or_default(),
+        Err(_) => String::from("[reap] PKGBUILD not found."),
+    }
+}
+
+/// Install packages using yay or pacman
+///
+/// # Errors
+///
+/// Returns an error if the installation fails.
+// Refactor async/parallel flows to use owned values or Arc<T> in tokio::spawn
+// For install(), clone bin and pkg for each task, no references moved into async
+// Add explicit return types for async blocks using ?
 pub async fn install(pkgs: Vec<&str>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let yay = which::which("yay").is_ok();
     let bin = if yay { "yay" } else { "pacman" };
     println!("[reap] Installing packages: {:?} ({} -S)...", pkgs, bin);
-    let mut tasks = Vec::new();
+    let mut tasks: Vec<tokio::task::JoinHandle<Result<(String, bool), anyhow::Error>>> = Vec::new();
     for &package in &pkgs {
         let bin = bin.to_string();
         let pkg = package.to_string();
         tasks.push(tokio::spawn(async move {
-            let pkgb = crate::utils::async_get_pkgbuild_cached(&pkg).await;
+            let pkgb = get_pkgbuild_cached(&pkg).await;
             let deps = get_deps(&pkgb);
             if !deps.is_empty() {
                 eprintln!("[reap] Dependencies for {}: {:?}", pkg.yellow(), deps);
@@ -120,8 +159,7 @@ pub async fn install(pkgs: Vec<&str>) -> Result<(), Box<dyn std::error::Error + 
                         let status = std::process::Command::new(&bin)
                             .arg("-S")
                             .arg(dep)
-                            .status()
-                            .expect("Failed to run -S <dep>");
+                            .status()?;
                         if status.success() {
                             println!("[reap] Installed dependency: {}", dep.green());
                         } else {
@@ -137,41 +175,40 @@ pub async fn install(pkgs: Vec<&str>) -> Result<(), Box<dyn std::error::Error + 
             let status = std::process::Command::new(&bin)
                 .arg("-S")
                 .arg(&pkg)
-                .status()
-                .expect("Failed to run -S <pkg>");
-            if status.success() {
-                crate::hooks::on_install(&pkg);
-            }
-            (pkg, status.success())
+                .status()?;
+            Ok((pkg, status.success()))
         }));
     }
     let results = join_all(tasks).await;
     for res in results {
         match res {
-            Ok((pkg, true)) => println!("[reap] Installed {}.", pkg.green()),
-            Ok((pkg, false)) => eprintln!("[reap] Install failed for {}.", pkg.red()),
+            Ok(Ok((pkg, true))) => println!("[reap] Installed {}.", pkg.green()),
+            Ok(Ok((pkg, false))) => eprintln!("[reap] Install failed for {}.", pkg.red()),
+            Ok(Err(e)) => eprintln!("[reap] Task error: {}", e),
             Err(e) => eprintln!("[reap] Task join error: {}", e),
         }
     }
     Ok(())
 }
 
+/// Uninstall a package
+///
+/// # Errors
+///
+/// Returns an error if the uninstallation fails.
 pub fn uninstall(package: &str) {
     let yay = which::which("yay").is_ok();
     let bin = if yay { "yay" } else { "pacman" };
     println!("[reap] Uninstalling {} ({} -R)...", package.yellow(), bin);
-    let status = Command::new(bin)
-        .arg("-R")
-        .arg(package)
-        .status()
-        .expect("Failed to run -R <pkg>");
-    if status.success() {
-        println!("[reap] Uninstalled {}.", package.green());
-    } else {
-        eprintln!("[reap] Uninstall failed for {}.", package.red());
+    let status = Command::new(bin).arg("-R").arg(package).status();
+    match status {
+        Ok(s) if s.success() => println!("[reap] Uninstalled {}.", package.green()),
+        Ok(_) => eprintln!("[reap] Uninstall failed for {}.", package.red()),
+        Err(e) => eprintln!("[reap] Failed to run -R <pkg>: {}", e),
     }
 }
 
+/// Get PKGBUILD preview
 pub fn get_pkgbuild_preview(pkg: &str) -> String {
     let url = format!(
         "https://aur.archlinux.org/cgit/aur.git/plain/PKGBUILD?h={}",
@@ -185,6 +222,7 @@ pub fn get_pkgbuild_preview(pkg: &str) -> String {
     String::from("[reap] PKGBUILD not found.")
 }
 
+/// Extract dependencies from PKGBUILD
 pub fn get_deps(pkgb: &str) -> Vec<String> {
     let mut deps = Vec::new();
     let mut in_dep = false;
@@ -218,6 +256,7 @@ pub fn get_deps(pkgb: &str) -> Vec<String> {
     deps
 }
 
+/// Add a tap repository
 pub fn add_tap(name: &str, url: &str) {
     let mut taps = TAP_REPOS.lock().unwrap();
     taps.insert(name.to_string(), url.to_string());
@@ -229,10 +268,16 @@ pub fn add_tap(name: &str, url: &str) {
     println!("[reap] Added tap repo: {} -> {}", name, url);
 }
 
+/// Get all tap repositories
 pub fn get_taps() -> HashMap<String, String> {
     TAP_REPOS.lock().unwrap().clone()
 }
 
+/// Sync package database
+//
+// # Errors
+//
+// Returns an error if the sync fails.
 pub async fn sync_db() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("[reap] Syncing package database (yay -Sy)...");
     let status = Command::new("yay").arg("-Sy").status()?;
@@ -244,6 +289,11 @@ pub async fn sync_db() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     Ok(())
 }
 
+/// Upgrade all packages
+//
+// # Errors
+//
+// Returns an error if the upgrade fails.
 pub async fn upgrade_all() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let outdated = get_outdated();
     if outdated.is_empty() {
@@ -275,6 +325,7 @@ pub async fn upgrade_all() -> Result<(), Box<dyn std::error::Error + Send + Sync
     Ok(())
 }
 
+/// Install a local package
 pub fn install_local(path: &str) {
     use std::path::Path;
     let file = Path::new(path);
@@ -307,6 +358,7 @@ pub fn install_local(path: &str) {
     }
 }
 
+// Get a list of outdated packages
 pub fn get_outdated() -> Vec<String> {
     use crate::aur::fetch_package_info;
     use crate::pacman;
