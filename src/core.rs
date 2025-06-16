@@ -8,11 +8,12 @@ use crate::config::ReapConfig;
 use crate::flatpak;
 use crate::hooks::{HookContext, post_install, pre_install};
 use crate::pacman;
+use crate::profiles::ProfileManager;
 use crate::tap::{Tap, discover_taps, find_tap_for_pkg};
+use crate::trust::TrustEngine;
 use crate::tui;
 use crate::tui::LogPane;
 use crate::utils;
-use crate::utils::{audit_flatpak_manifest, pkgb_diff_audit};
 use anyhow::anyhow;
 use anyhow::{Context, Result};
 use chrono::Local;
@@ -20,17 +21,15 @@ use futures::FutureExt;
 use futures::future::join_all;
 use indicatif::{ProgressBar, ProgressStyle};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs;
-use std::fs::File;
-use std::io::{BufRead, BufReader};
-use std::path::{PathBuf};
-use std::pin::Pin;
+use std::io::BufRead;
+use std::path::PathBuf;
 use std::process::Command;
+use std::sync::Arc;
 use std::time::Instant;
 use thiserror::Error;
 use tokio::sync::Semaphore;
-use std::sync::Arc;
 
 /// Custom error type for Reap
 #[derive(Debug, Error)]
@@ -39,28 +38,6 @@ pub enum ReapError {
     CommandFailed(String),
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
-    #[error("Other error: {0}")]
-    Other(String),
-    #[error("Install failed: {0}")]
-    InstallFailed(String),
-}
-
-/// Check for file conflicts before install (returns list of conflicting files and owners)
-pub fn detect_file_conflicts(file_list: &[String]) -> Vec<(String, String)> {
-    let mut conflicts = Vec::new();
-    for file in file_list {
-        let output = std::process::Command::new("pacman")
-            .arg("-Qo")
-            .arg(file)
-            .output();
-        if let Ok(out) = output {
-            if out.status.success() {
-                let owner = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                conflicts.push((file.clone(), owner));
-            }
-        }
-    }
-    conflicts
 }
 
 /// Backup package state before install (files and pacman db)
@@ -119,19 +96,12 @@ impl Source {
 #[derive(Debug, Clone)]
 pub struct InstallTask {
     pub pkg: String,
-    pub confirm: bool,
     pub source: Source,
-    pub repo_name: Option<String>,
 }
 
 impl InstallTask {
-    pub fn new(pkg: String, confirm: bool, source: Source, repo_name: Option<String>) -> Self {
-        Self {
-            pkg,
-            confirm,
-            source,
-            repo_name,
-        }
+    pub fn new(pkg: String, source: Source) -> Self {
+        Self { pkg, source }
     }
 }
 
@@ -139,13 +109,12 @@ impl InstallTask {
 pub struct InstallOptions {
     pub insecure: bool,
     pub gpg_keyserver: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct InstallFailure {
-    pub pkg: String,
-    pub step: String,
-    pub reason: String,
+    #[allow(dead_code)]
+    pub fast_mode: bool,
+    #[allow(dead_code)]
+    pub strict_signatures: bool,
+    #[allow(dead_code)]
+    pub max_parallel: usize,
 }
 
 pub fn get_installed_packages() -> HashMap<String, Source> {
@@ -386,6 +355,9 @@ pub async fn install_with_priority(
                 let opts = InstallOptions {
                     insecure: false,
                     gpg_keyserver: None,
+                    fast_mode: false,
+                    strict_signatures: false,
+                    max_parallel: 4,
                 };
                 let _ = install_aur_native(pkg, &log, &opts).await;
                 log.push(&format!("[✓] Installed {} from AUR", pkg));
@@ -406,10 +378,16 @@ pub async fn install_with_priority(
         crate::utils::rollback(pkg);
     }
     let elapsed = start.elapsed();
-    log.push(&format!("[reap][timing] install_with_priority for {} took: {:?}", pkg, elapsed));
+    log.push(&format!(
+        "[reap][timing] install_with_priority for {} took: {:?}",
+        pkg, elapsed
+    ));
     // Backup before install
     if let Ok(backup_path) = backup_package_state(pkg) {
-        log.push(&format!("[reap][backup] State backed up to {}", backup_path.display()));
+        log.push(&format!(
+            "[reap][backup] State backed up to {}",
+            backup_path.display()
+        ));
     }
     // Show PKGBUILD diff before install
     show_pkgbuild_diff(pkg);
@@ -453,22 +431,6 @@ pub fn print_search_results(results: &[aur::SearchResult]) {
             _ => format!("[{}]", r.source.label()),
         };
         println!("{:<20} ▸ {:<40} {}", r.name.bold(), r.description, tag);
-    }
-}
-
-/// Prompt the user for confirmation unless --yes or config disables it
-pub fn confirm_action(prompt: &str, assume_yes: bool) -> bool {
-    if assume_yes {
-        return true;
-    }
-    use std::io::{self, Write};
-    print!("{} [y/N]: ", prompt);
-    let _ = io::stdout().flush();
-    let mut input = String::new();
-    if io::stdin().read_line(&mut input).is_ok() {
-        matches!(input.trim().to_lowercase().as_str(), "y" | "yes")
-    } else {
-        false
     }
 }
 
@@ -563,68 +525,6 @@ pub fn detect_source(pkg: &str, repo: Option<&str>, binary_only: bool) -> Option
     None
 }
 
-pub fn try_binary_install(pkg: &str, repo_name: &str) -> bool {
-    let arch = std::env::consts::ARCH;
-    let base_url = match repo_name {
-        "chaotic-aur" => "https://cdn-mirror.chaotic.cx/chaotic-aur/x86_64",
-        "ghostctl-aur" | "ghostctl" => "https://pkg.ghostctl.io/x86_64",
-        _ => "",
-    };
-    if !base_url.is_empty() {
-        let url = format!("{}/{}-latest-{}.pkg.tar.zst", base_url, pkg, arch);
-        let out_path = std::env::temp_dir().join(format!("{}.pkg.tar.zst", pkg));
-        if let Ok(resp) = reqwest::blocking::get(&url) {
-            if resp.status().is_success() {
-                if let Ok(bytes) = resp.bytes() {
-                    if std::fs::write(&out_path, &bytes).is_ok() {
-                        println!("[reap][binrepo] Downloaded {} from {}", pkg, url);
-                        let status = std::process::Command::new("sudo")
-                            .arg("pacman")
-                            .arg("-U")
-                            .arg("--noconfirm")
-                            .arg(&out_path)
-                            .status();
-                        if let Ok(s) = status {
-                            if s.success() {
-                                println!("[reap][binrepo] {} installed from {}", pkg, repo_name);
-                                return true;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        println!(
-            "[reap][binrepo] Failed to install {} from {}",
-            pkg, repo_name
-        );
-        return false;
-    }
-    if repo_has_package(pkg, repo_name) {
-        println!(
-            "[reap][binrepo] Installing {} from binary repo [{}] via pacman...",
-            pkg, repo_name
-        );
-        let status = std::process::Command::new("sudo")
-            .arg("pacman")
-            .arg("-S")
-            .arg("--noconfirm")
-            .arg(pkg)
-            .status();
-        if let Ok(s) = status {
-            if s.success() {
-                println!("[reap][binrepo] {} installed from {}", pkg, repo_name);
-                return true;
-            }
-        }
-        println!(
-            "[reap][binrepo] pacman -S failed for {} from {}",
-            pkg, repo_name
-        );
-    }
-    false
-}
-
 pub fn handle_install(pkgs: Vec<String>) {
     let backend: Box<dyn Backend> = Box::new(AurBackend::new());
     for pkg in pkgs {
@@ -665,6 +565,62 @@ pub async fn handle_install_parallel(pkgs: Vec<String>, max_parallel: usize) {
     println!("[reap] All installs complete.");
 }
 
+pub fn handle_removal(pkgs: &[String]) {
+    for pkg in pkgs {
+        println!("[reap] Removing {}...", pkg);
+        aur::uninstall(pkg);
+    }
+}
+
+pub fn handle_local_install(pkgs: &[String]) {
+    for pkg in pkgs {
+        println!("[reap] Installing local package {}...", pkg);
+        aur::install_local(pkg);
+    }
+}
+
+pub fn handle_search(terms: &[String]) {
+    for term in terms {
+        println!("[reap] Searching for {}...", term);
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        match rt.block_on(aur::search(term)) {
+            Ok(results) => print_search_results(&results),
+            Err(e) => eprintln!("[reap] Search failed for '{}': {}", term, e),
+        }
+    }
+}
+
+pub fn handle_upgrade_all() {
+    println!("[reap] Upgrading all packages...");
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    if let Err(e) = rt.block_on(aur::upgrade_all()) {
+        eprintln!("[reap] Upgrade all failed: {}", e);
+    }
+}
+
+pub fn handle_clean() {
+    println!("[reap] Cleaning package cache...");
+    let status = std::process::Command::new("sudo")
+        .arg("pacman")
+        .arg("-Sc")
+        .arg("--noconfirm")
+        .status();
+
+    match status {
+        Ok(s) if s.success() => println!("[reap] Cache cleaned successfully"),
+        Ok(_) => eprintln!("[reap] Failed to clean cache"),
+        Err(e) => eprintln!("[reap] Error cleaning cache: {}", e),
+    }
+}
+
+pub fn handle_doctor() {
+    println!("[reap] Running system diagnostics...");
+    match crate::utils::doctor_report() {
+        Ok(report) => println!("[reap] Doctor report:\n{}", report),
+        Err(e) => eprintln!("[reap] Doctor error: {}", e),
+    }
+}
+
 pub fn handle_upgrade(parallel: bool) {
     let config = crate::config::ReapConfig::load();
     let installed = crate::pacman::list_installed_aur();
@@ -703,27 +659,6 @@ pub fn handle_rollback(pkg: &str) {
     // Restore or remove utils::rollback and hooks::on_rollback
     if let Some(rollback_fn) = std::option::Option::Some(utils::rollback) {
         rollback_fn(pkg);
-    }
-}
-
-pub fn handle_audit(pkg: &str) {
-    match crate::core::detect_source(pkg, None, false) {
-        Some(crate::core::Source::Aur) => {
-            let pkgb = crate::aur::get_pkgbuild_preview(pkg);
-            pkgb_diff_audit(pkg, &pkgb);
-        }
-        Some(crate::core::Source::Flatpak) => {
-            let output = std::process::Command::new("flatpak")
-                .arg("info")
-                .arg(pkg)
-                .output();
-            if let Ok(out) = output {
-                audit_flatpak_manifest(&String::from_utf8_lossy(&out.stdout));
-            } else {
-                println!("[AUDIT][FLATPAK] Could not get info for {}.", pkg);
-            }
-        }
-        _ => println!("[AUDIT] Unknown package source for {}.", pkg),
     }
 }
 
@@ -794,32 +729,6 @@ pub fn show_pkgbuild_diff(pkg: &str) {
             diff::Result::Both(l, _) => println!("  {}", l),
         }
     }
-}
-
-pub fn get_pkgbuild_preview(pkg: &str) -> String {
-    let url = format!(
-        "https://aur.archlinux.org/cgit/aur.git/plain/PKGBUILD?h={}",
-        pkg
-    );
-    // Try to read from a local cache file for demonstration
-    let local_path = std::env::temp_dir().join(format!("reap-aur-{}/PKGBUILD", pkg));
-    if let Ok(file) = File::open(&local_path) {
-        let reader = BufReader::new(file);
-        let mut content = String::new();
-        // Replace manual if let Ok(l) = line with .map_while(Result::ok)
-        for line in reader.lines().map_while(Result::ok) {
-            content.push_str(&line);
-            content.push('\n');
-        }
-        return content;
-    }
-    // Fallback to remote fetch
-    if let Ok(resp) = reqwest::blocking::get(&url) {
-        if let Ok(text) = resp.text() {
-            return text;
-        }
-    }
-    String::from("[reap] PKGBUILD not found.")
 }
 
 pub async fn install_aur_native(
@@ -945,287 +854,8 @@ pub async fn install_aur_native(
     Ok(())
 }
 
-pub async fn install_flatpak(pkg: &str, log: &LogPane) -> Result<(), ReapError> {
-    log.push(&format!("→ Installing Flatpak: {}", pkg));
-    let status = std::process::Command::new("flatpak")
-        .args(["install", "-y", pkg])
-        .status();
-    match status {
-        Ok(s) if s.success() => {
-            log.push(&format!("✓ Flatpak installed: {}", pkg));
-            Ok(())
-        }
-        Ok(_) => {
-            log.push(&format!("❌ Flatpak install failed: {}", pkg));
-            Err(ReapError::InstallFailed(pkg.to_string()))
-        }
-        Err(e) => {
-            log.push(&format!("❌ Flatpak install error: {}: {}", pkg, e));
-            Err(ReapError::Io(e))
-        }
-    }
-}
-
-pub async fn handle_install_dispatch(
-    pkg: &str,
-    log: &LogPane,
-    opts: &InstallOptions,
-    backend: &str,
-) -> Result<(), ReapError> {
-    match backend {
-        "aur" => install_aur_native(pkg, log, opts).await,
-        "flatpak" => install_flatpak(pkg, log).await,
-        _ => {
-            log.push(&format!("❌ Unknown backend: {}", backend));
-            Err(ReapError::Other(format!("Unknown backend: {}", backend)))
-        }
-    }
-}
-
 /// Recursively resolve all missing dependencies for a list of packages (AUR + repo)
-pub fn resolve_and_install_deps<'a>(
-    pkgs: &'a [&str],
-    log: Option<&'a LogPane>,
-    already_installed: &'a mut HashSet<String>,
-    already_queued: &'a mut HashSet<String>,
-) -> Pin<Box<dyn Future<Output = Result<(), ()>> + 'a>> {
-    Box::pin(async move {
-        for &pkg in pkgs {
-            if already_installed.contains(pkg) || already_queued.contains(pkg) {
-                continue;
-            }
-
-            let pkgb = aur::get_pkgbuild_preview(pkg);
-            let mut resolved = HashSet::new();
-            let mut dep_map = HashMap::new();
-            let deps: Vec<(String, Source)> =
-                resolve_deps_for(&pkgb, &mut resolved, &mut dep_map, true);
-
-            if deps.is_empty() {
-                if let Some(log) = log {
-                    log.push(&format!("✓ All dependencies already installed for {}", pkg));
-                } else {
-                    println!("✓ All dependencies already installed for {}", pkg);
-                }
-            } else {
-                if let Some(log) = log {
-                    log.push(&format!(
-                        "⚠ Installing missing dependencies for {}: {:?}",
-                        pkg, deps
-                    ));
-                } else {
-                    println!("⚠ Installing missing dependencies for {}: {:?}", pkg, deps);
-                }
-
-                for dep in &deps {
-                    if already_installed.contains(&dep.0) || already_queued.contains(&dep.0) {
-                        continue;
-                    }
-
-                    // Recursively resolve
-                    resolve_and_install_deps(
-                        &[dep.0.as_str()],
-                        log,
-                        already_installed,
-                        already_queued,
-                    )
-                    .await?;
-
-                    let repo_status = std::process::Command::new("pacman")
-                        .arg("-Si")
-                        .arg(&dep.0)
-                        .status();
-
-                    if let Ok(s) = repo_status {
-                        if s.success() {
-                            let _ = std::process::Command::new("sudo")
-                                .arg("pacman")
-                                .arg("-S")
-                                .arg("--noconfirm")
-                                .arg(&dep.0)
-                                .status();
-
-                            if let Some(log) = log {
-                                log.push(&format!("[deps] Installed {} from repo", dep.0));
-                            } else {
-                                println!("[deps] Installed {} from repo", dep.0);
-                            }
-
-                            already_installed.insert(dep.0.clone());
-                            continue;
-                        }
-                    }
-
-                    let opts = InstallOptions {
-                        insecure: false,
-                        gpg_keyserver: None,
-                    };
-
-                    install_aur_native(dep.0.as_str(), log.unwrap(), &opts)
-                        .await
-                        .unwrap_or_else(|e| {
-                            println!("[deps] Failed to install {}: {:?}", dep.0, e);
-                        });
-
-                    already_installed.insert(dep.0.clone());
-                }
-            }
-
-            already_queued.insert(pkg.to_string());
-        }
-
-        Ok(())
-    })
-}
-
 /// Hybrid dependency resolver: tap > AUR > system
-pub fn resolve_deps_for(
-    pkg: &str,
-    resolved: &mut std::collections::HashSet<String>,
-    dep_map: &mut std::collections::HashMap<String, Source>,
-    _cache: bool,
-) -> Vec<(String, Source)> {
-    #[cfg(feature = "cache")]
-    let cache_dir = dirs::data_dir()
-        .unwrap_or_else(|| PathBuf::from("/tmp"))
-        .join("reap/cache/resolved");
-    #[cfg(feature = "cache")]
-    if _cache {
-        let cache_path = cache_dir.join(format!("{}.json", pkg));
-        if let Ok(data) = fs::read_to_string(&cache_path) {
-            if let Ok(map) = serde_json::from_str::<HashMap<String, String>>(&data) {
-                for (dep, src) in map {
-                    dep_map.insert(
-                        dep.clone(),
-                        match src.as_str() {
-                            "tap" => Source::Custom("tap".to_string()),
-                            "aur" => Source::Aur,
-                            "system" => Source::Pacman,
-                            _ => Source::Aur,
-                        },
-                    );
-                }
-                return dep_map
-                    .iter()
-                    .map(|(d, s)| (d.clone(), s.clone()))
-                    .collect();
-            }
-        }
-    }
-    let mut queue = Vec::new();
-    if resolved.contains(pkg) {
-        return vec![];
-    }
-    resolved.insert(pkg.to_string());
-    // 1. Try tapmeta.json or meta.toml
-    let mut deps: Vec<String> = Vec::new();
-    let taps = crate::tap::discover_taps();
-    let mut found_tap = None;
-    for tap in taps.iter().filter(|t| t.enabled) {
-        let tap_path = crate::tap::ensure_tap_cloned(tap);
-        let meta_path = tap_path.join(pkg).join("meta.toml");
-        let tapmeta_path = tap_path.join("tapmeta.json");
-        if meta_path.exists() {
-            if let Ok(meta) = fs::read_to_string(&meta_path) {
-                if let Ok(val) = meta.parse::<toml::Value>() {
-                    if let Some(arr) = val.get("depends").and_then(|v| v.as_array()) {
-                        for d in arr {
-                            if let Some(dep) = d.as_str() {
-                                deps.push(dep.to_string());
-                            }
-                        }
-                        found_tap = Some(tap.name.clone());
-                    }
-                }
-            }
-        } else if tapmeta_path.exists() {
-            if let Ok(meta) = fs::read_to_string(&tapmeta_path) {
-                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&meta) {
-                    if let Some(obj) = json
-                        .get(pkg)
-                        .and_then(|v| v.get("depends"))
-                        .and_then(|v| v.as_array())
-                    {
-                        for d in obj {
-                            if let Some(dep) = d.as_str() {
-                                deps.push(dep.to_string());
-                            }
-                        }
-                        found_tap = Some(tap.name.clone());
-                    }
-                }
-            }
-        }
-        if found_tap.is_some() {
-            break;
-        }
-    }
-    // 2. Fallback: parse PKGBUILD for depends/makedepends
-    if deps.is_empty() {
-        let pkgb = crate::aur::get_pkgbuild_preview(pkg);
-        let (depends, makedepends, _, _, _) = crate::utils::resolve_deps(&pkgb);
-        deps.extend(depends);
-        deps.extend(makedepends);
-    }
-    for dep in deps {
-        if resolved.contains(&dep) {
-            continue;
-        }
-        if is_installed(&dep) {
-            dep_map.insert(dep.clone(), Source::Pacman);
-            continue;
-        }
-        // Tap
-        let tap_hit = crate::tap::search_tap_indexes(&dep)
-            .iter()
-            .any(|(n, _, _, _)| n == &dep);
-        if tap_hit {
-            dep_map.insert(dep.clone(), Source::Custom("tap".to_string()));
-            queue.push((dep.clone(), Source::Custom("tap".to_string())));
-        } else if crate::aur::aur_search_results(&dep)
-            .iter()
-            .any(|r| r.name == dep)
-        {
-            dep_map.insert(dep.clone(), Source::Aur);
-            queue.push((dep.clone(), Source::Aur));
-        } else {
-            // Not found, skip
-        }
-    }
-    // Recurse if --resolve-deps
-    for (dep, _src) in queue.clone() {
-        let _ = resolve_deps_for(&dep, resolved, dep_map, _cache);
-    }
-    #[cfg(feature = "cache")]
-    if _cache {
-        let _ = fs::create_dir_all(&cache_dir);
-        let mut out: HashMap<String, String> = HashMap::new();
-        for (dep, src) in dep_map.iter() {
-            out.insert(
-                dep.clone(),
-                match src {
-                    Source::Custom(_) => "tap",
-                    Source::Aur => "aur",
-                    Source::Pacman => "system",
-                    _ => "aur",
-                }
-                .to_string(),
-            );
-        }
-        let cache_path = cache_dir.join(format!("{}.json", pkg));
-        let _ = fs::write(&cache_path, serde_json::to_string(&out).unwrap());
-    }
-    queue
-}
-
-pub fn is_installed(pkg: &str) -> bool {
-    let status = std::process::Command::new("pacman")
-        .arg("-Qq")
-        .arg(pkg)
-        .status();
-    matches!(status, Ok(s) if s.success())
-}
-
 pub async fn handle_cli(cli: &Cli) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Define or remove gpg_cmd if not needed
     match &cli.command {
@@ -1238,9 +868,7 @@ pub async fn handle_cli(cli: &Cli) -> Result<(), Box<dyn std::error::Error + Sen
             let source = detect_source(pkg, repo.as_deref(), *binary_only).unwrap_or(Source::Aur);
             let task = InstallTask::new(
                 pkg.to_string(),
-                !cli.noconfirm,
                 source.clone(),
-                repo.clone(),
             );
             let log_pane = tui::LogPane::default();
             let backend = cli.backend.as_str();
@@ -1271,6 +899,9 @@ pub async fn handle_cli(cli: &Cli) -> Result<(), Box<dyn std::error::Error + Sen
                 let opts = InstallOptions {
                     insecure: false,
                     gpg_keyserver: None,
+                    fast_mode: false,
+                    strict_signatures: false,
+                    max_parallel: 4,
                 };
                 install_aur_native(&task.pkg, &log_pane, &opts)
                     .await
@@ -1306,6 +937,9 @@ pub async fn handle_cli(cli: &Cli) -> Result<(), Box<dyn std::error::Error + Sen
             let opts = InstallOptions {
                 insecure: false,
                 gpg_keyserver: None,
+                fast_mode: false,
+                strict_signatures: false,
+                max_parallel: 4,
             };
             for pkg in to_upgrade {
                 install_aur_native(&pkg, &log_pane, &opts)
@@ -1360,10 +994,11 @@ pub async fn handle_cli(cli: &Cli) -> Result<(), Box<dyn std::error::Error + Sen
                 name,
                 url,
                 priority,
-            } => crate::tap::add_or_update_tap(name, url, *priority, true),
+            } => crate::tap::add_or_update_tap(name, url, Some(*priority as u8), true),
             TapCmd::Remove { name } => crate::tap::remove_tap(name),
             TapCmd::Enable { name } => crate::tap::set_tap_enabled(name, true),
             TapCmd::Disable { name } => crate::tap::set_tap_enabled(name, false),
+            TapCmd::Update => crate::tap::sync_taps(),
             TapCmd::Sync => crate::tap::sync_taps(),
             TapCmd::List => crate::tap::list_taps(),
         },
@@ -1396,4 +1031,240 @@ pub async fn handle_cli(cli: &Cli) -> Result<(), Box<dyn std::error::Error + Sen
         _ => return Err(anyhow!("Not yet implemented").into()),
     }
     Ok(())
+}
+
+/// Enhanced install function with profile and trust integration
+#[allow(dead_code)]
+pub async fn install_with_priority_enhanced(
+    pkg: &str,
+    config: Arc<ReapConfig>,
+    _confirm: bool,
+    log: Arc<LogPane>,
+    opts: &InstallOptions,
+    profile_manager: &ProfileManager,
+    trust_engine: &TrustEngine,
+) {
+    use owo_colors::OwoColorize;
+    let start = Instant::now();
+
+    // Get active profile
+    let profile = profile_manager.get_active_profile().unwrap_or_default();
+    log.push(&format!("[reap][profile] Using profile: {}", profile.name));
+
+    // Compute trust score
+    let source = detect_source(pkg, None, false).unwrap_or(Source::Aur);
+    let trust_score = trust_engine.compute_trust_score(pkg, &source).await;
+    let trust_badge = trust_engine.display_trust_badge(trust_score.overall_score);
+
+    log.push(&format!("[reap][trust] {} {}", pkg, trust_badge));
+
+    // Check profile security settings
+    if profile.strict_signatures.unwrap_or(false) && !trust_score.signature_valid {
+        log.push("[reap][security] Aborting: strict mode requires valid signature");
+        return;
+    }
+
+    // Apply profile settings
+    let _effective_parallel = profile.parallel_jobs.unwrap_or(config.parallel);
+    let effective_fast = profile.fast_mode.unwrap_or(false);
+
+    if effective_fast {
+        log.push("[reap][profile] Fast mode enabled, skipping verification");
+    }
+
+    // Continue with existing install logic but with profile-aware settings
+    let ctx = HookContext {
+        pkg: pkg.to_string(),
+        version: None,
+        source: Some(source.label().to_string()),
+        install_path: None,
+        tap: None,
+    };
+
+    log.push(&format!("[reap][hook] pre_install executing for {}", pkg));
+    pre_install(&ctx);
+
+    let global_config = GlobalConfig::load();
+    if let Some((source, tap_name, prio, tap_obj)) =
+        resolve_package_source(pkg, None, &global_config)
+    {
+        // Prepare hook context
+        let ctx = HookContext {
+            pkg: pkg.to_string(),
+            version: None,
+            source: Some(format!("{:?}", source)),
+            install_path: None,
+            tap: tap_name.clone(),
+        };
+        log.push(&format!(
+            "[reap][priority] Resolved source for '{}': {}{} (priority {})",
+            pkg,
+            source.label(),
+            tap_name.as_deref().unwrap_or(""),
+            prio
+        ));
+        match source {
+            Source::Custom(ref _tap_repo) => {
+                if let Some(tap) = tap_obj {
+                    let tap_path = crate::tap::ensure_tap_cloned(&tap);
+                    let pkg_dir = tap_path.join(pkg);
+                    let pkgb_path = pkg_dir.join("PKGBUILD");
+                    let sig_path = pkg_dir.join("PKGBUILD.sig");
+                    let pubinfo = crate::tap::get_publisher_info(&tap);
+                    if let Some(pubinfo) = pubinfo {
+                        let keyid = pubinfo.gpg_key.split_whitespace().last().unwrap_or("");
+                        let verified_str = if pubinfo.verified {
+                            "[✓ Verified GPG]".green().to_string()
+                        } else {
+                            "[Unverified]".yellow().to_string()
+                        };
+                        log.push(&format!(
+                            "👤 {} from {} {}",
+                            tap.name.bold(),
+                            pubinfo.name,
+                            verified_str
+                        ));
+                        log.push(&format!("🔑 GPG Key: {}", keyid));
+                        // Check if key is in keyring
+                        let key_present = std::process::Command::new("gpg")
+                            .args(["--list-keys", keyid])
+                            .output()
+                            .map(|o| o.status.success())
+                            .unwrap_or(false);
+                        if !key_present {
+                            let keyserver = opts
+                                .gpg_keyserver
+                                .as_deref()
+                                .unwrap_or("hkps://keys.openpgp.org");
+                            log.push(&format!(
+                                "[reap][gpg] Importing publisher key {} from {}...",
+                                keyid, keyserver
+                            ));
+                            let fetch = std::process::Command::new("gpg")
+                                .args(["--keyserver", keyserver, "--recv-keys", keyid])
+                                .status();
+                            match fetch {
+                                Ok(s) if s.success() => log.push(&format!(
+                                    "[reap][gpg] {} Successfully imported {}",
+                                    "✓".green(),
+                                    keyid
+                                )),
+                                Ok(_) | Err(_) => log.push(&format!(
+                                    "[reap][gpg] {} Failed to import publisher key {}",
+                                    "❌".red(),
+                                    keyid
+                                )),
+                            }
+                        }
+                        // Verify PKGBUILD.sig
+                        if sig_path.exists() && pkgb_path.exists() {
+                            let verify = std::process::Command::new("gpg")
+                                .arg("--verify")
+                                .arg(&sig_path)
+                                .arg(&pkgb_path)
+                                .status();
+                            if let Ok(s) = verify {
+                                if s.success() {
+                                    log.push(&format!(
+                                        "{} PKGBUILD signature verified",
+                                        "✓".green()
+                                    ));
+                                } else {
+                                    log.push(&format!(
+                                        "{} Verification failed for PKGBUILD.sig (key: {})",
+                                        "❌".red(),
+                                        keyid
+                                    ));
+                                    if !opts.insecure {
+                                        log.push(&format!(
+                                            "{} Aborting install. Use --insecure to override.",
+                                            "✋".red()
+                                        ));
+                                        return;
+                                    } else {
+                                        log.push(&format!(
+                                            "{} Continuing install due to --insecure.",
+                                            "⚠️".yellow()
+                                        ));
+                                    }
+                                }
+                            } else {
+                                log.push(&format!(
+                                    "{} Verification failed for PKGBUILD.sig (key: {})",
+                                    "❌".red(),
+                                    keyid
+                                ));
+                                if !opts.insecure {
+                                    log.push(&format!(
+                                        "{} Aborting install. Use --insecure to override.",
+                                        "✋".red()
+                                    ));
+                                    return;
+                                } else {
+                                    log.push(&format!(
+                                        "{} Continuing install due to --insecure.",
+                                        "⚠️".yellow()
+                                    ));
+                                }
+                            }
+                        } else {
+                            log.push(&format!("{} PKGBUILD.sig missing. Aborting install. Use --insecure to override.", "❌".red()));
+                            if !opts.insecure {
+                                return;
+                            } else {
+                                log.push(&format!(
+                                    "{} Continuing install due to --insecure.",
+                                    "⚠️".yellow()
+                                ));
+                            }
+                        }
+                    } else {
+                        log.push(&format!(
+                            "{} Warning: Tap publisher not verified. Installing with --insecure.",
+                            "⚠️".yellow()
+                        ));
+                        if !opts.insecure {
+                            return;
+                        }
+                    }
+                }
+                // ...proceed with install if verified or --insecure...
+            }
+            Source::Pacman => {
+                log.push(&format!("[reap][pacman] Installing {} from repo", pkg));
+                pacman::install(pkg);
+                log.push(&format!("[✓] Installed {} from Pacman", pkg));
+            }
+            Source::Aur => {
+                log.push(&format!("[reap][aur] Installing {} from AUR", pkg));
+                let opts = InstallOptions {
+                    insecure: false,
+                    gpg_keyserver: None,
+                    fast_mode: false,
+                    strict_signatures: false,
+                    max_parallel: 4,
+                };
+                let _ = install_aur_native(pkg, &log, &opts).await;
+                log.push(&format!("[✓] Installed {} from AUR", pkg));
+            }
+            Source::Flatpak => {
+                log.push(&format!("[reap][flatpak] Installing {} from Flatpak", pkg));
+                let _ = flatpak::install_flatpak(pkg).await;
+            }
+            _ => log.push(&format!("[!] Unknown source for {}", pkg)),
+        }
+        log.push(&format!("[reap][hook] post_install executing for {}", pkg));
+        post_install(&ctx);
+    } else {
+        log.push(&format!(
+            "[reap][error] Could not resolve source for {}",
+            pkg
+        ));
+        crate::utils::rollback(pkg);
+    }
+    let elapsed = start.elapsed();
+    log.push(&format!(
+        "[reap][timing] Enhanced install for {} took: {:?}",
+        pkg, elapsed
+    ));
 }

@@ -3,11 +3,15 @@ pub mod backend;
 pub mod cli;
 pub mod config;
 pub mod core;
+pub mod enhanced_aur;
 pub mod flatpak;
 pub mod gpg;
 pub mod hooks;
+pub mod interactive;
 pub mod pacman;
+pub mod profiles;
 pub mod tap;
+pub mod trust;
 pub mod tui;
 pub mod utils;
 

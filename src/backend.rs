@@ -23,15 +23,21 @@ use std::str::FromStr;
 /// See doc/ARCHITECTURE.md for backend flow details.
 #[async_trait]
 pub trait Backend: Send + Sync {
+    #[allow(dead_code)]
     fn name(&self) -> &'static str;
+    #[allow(dead_code)]
     fn is_available(&self) -> bool;
+    #[allow(dead_code)]
     async fn search(&self, query: &str) -> Vec<SearchResult>;
     async fn install(&self, package: &str);
+    #[allow(dead_code)]
     async fn upgrade(&self);
     async fn audit(&self, package: &str);
+    #[allow(dead_code)]
     async fn gpg_check(&self, package: &str);
 }
 
+#[allow(dead_code)]
 pub fn build_and_install(pkgdir: &Path) -> Result<(), Box<dyn Error + Send + Sync>> {
     let status = Command::new("makepkg")
         .arg("-si")
@@ -173,10 +179,12 @@ impl Backend for FlatpakBackend {
 #[derive(Default)]
 pub struct TapBackend;
 impl TapBackend {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         TapBackend
     }
     /// Scan ~/.config/reap/taps/*.toml or ~/.local/share/reap/taps/ for registered taps.
+    #[allow(dead_code)]
     pub fn discover_taps() -> Vec<(String, String, u32)> {
         let mut taps = Vec::new();
         let config_dir = dirs::config_dir().unwrap_or_default().join("reap/taps");
@@ -211,6 +219,7 @@ impl TapBackend {
         taps
     }
     /// Check if a tap contains the requested package (stub: always false for now)
+    #[allow(dead_code)]
     pub fn tap_has_package(_tap_url: &str, _pkg: &str) -> bool {
         false // TODO: Implement actual check
     }
@@ -280,6 +289,7 @@ impl Backend for AptBackend {
 }
 
 // Backend selection is now always native for AUR, Flatpak, Pacman, and (future) Tap.
+#[allow(dead_code)]
 pub enum BackendImpl {
     Aur(AurBackend),
     Flatpak(FlatpakBackend),
@@ -288,6 +298,7 @@ pub enum BackendImpl {
 }
 
 impl BackendImpl {
+    #[allow(dead_code)]
     pub async fn search(&self, query: &str) -> Vec<SearchResult> {
         match self {
             BackendImpl::Aur(b) => b.search(query).await,
@@ -296,6 +307,7 @@ impl BackendImpl {
             BackendImpl::Apt(b) => b.search(query).await,
         }
     }
+    #[allow(dead_code)]
     pub async fn install(&self, pkg: &str) {
         match self {
             BackendImpl::Aur(b) => b.install(pkg).await,
@@ -304,6 +316,7 @@ impl BackendImpl {
             BackendImpl::Apt(b) => b.install(pkg).await,
         }
     }
+    #[allow(dead_code)]
     pub async fn upgrade(&self) {
         match self {
             BackendImpl::Aur(b) => b.upgrade().await,
@@ -312,6 +325,7 @@ impl BackendImpl {
             BackendImpl::Apt(b) => b.upgrade().await,
         }
     }
+    #[allow(dead_code)]
     pub async fn audit(&self, pkg: &str) {
         match self {
             BackendImpl::Aur(b) => b.audit(pkg).await,
@@ -320,6 +334,7 @@ impl BackendImpl {
             BackendImpl::Apt(b) => b.audit(pkg).await,
         }
     }
+    #[allow(dead_code)]
     pub async fn gpg_check(&self, pkg: &str) {
         match self {
             BackendImpl::Aur(b) => b.gpg_check(pkg).await,

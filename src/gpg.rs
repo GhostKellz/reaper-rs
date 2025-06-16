@@ -195,7 +195,6 @@ pub fn gpg_check(pkgdir: &Path) -> Result<(), String> {
     }
 }
 
-#[allow(dead_code)]
 /// Refresh all GPG keys
 pub fn refresh_keys() {
     // TODO: Wire this into CLI flow in core::handle_cli()
@@ -252,5 +251,20 @@ pub async fn check_key(keyid: &str) {
         }
     } else {
         println!("[reap] gpg :: Failed to check GPG key {}.", keyid);
+    }
+}
+
+/// Show GPG key details
+pub fn show_key(keyid: &str) {
+    show_gpg_key_info(keyid);
+}
+
+/// Check if GPG key exists in keyring
+pub fn key_exists(keyid: &str) -> bool {
+    let output = Command::new("gpg").args(["--list-keys", keyid]).output();
+    if let Ok(out) = output {
+        out.status.success()
+    } else {
+        false
     }
 }

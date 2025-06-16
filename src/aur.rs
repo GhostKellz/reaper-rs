@@ -1,29 +1,11 @@
 use crate::utils;
 use anyhow::Result;
 use futures::future::join_all;
-use once_cell::sync::Lazy;
 use owo_colors::OwoColorize;
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::error::Error;
-use std::fs;
-use std::path::PathBuf;
 use std::process::Command;
-use std::sync::Mutex;
-
-static TAP_REPOS: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| {
-    let mut map = HashMap::new();
-    let config_path = dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("/tmp"))
-        .join("reap/taps.json");
-    if let Ok(data) = fs::read_to_string(&config_path) {
-        if let Ok(json) = serde_json::from_str::<HashMap<String, String>>(&data) {
-            map = json;
-        }
-    }
-    Mutex::new(map)
-});
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchResult {
@@ -254,39 +236,6 @@ pub fn get_deps(pkgb: &str) -> Vec<String> {
         }
     }
     deps
-}
-
-/// Add a tap repository
-pub fn add_tap(name: &str, url: &str) {
-    let mut taps = TAP_REPOS.lock().unwrap();
-    taps.insert(name.to_string(), url.to_string());
-    let config_path = dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("/tmp"))
-        .join("reap/taps.json");
-    let _ = fs::create_dir_all(config_path.parent().unwrap());
-    let _ = fs::write(&config_path, serde_json::to_string_pretty(&*taps).unwrap());
-    println!("[reap] Added tap repo: {} -> {}", name, url);
-}
-
-/// Get all tap repositories
-pub fn get_taps() -> HashMap<String, String> {
-    TAP_REPOS.lock().unwrap().clone()
-}
-
-/// Sync package database
-//
-// # Errors
-//
-// Returns an error if the sync fails.
-pub async fn sync_db() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    println!("[reap] Syncing package database (yay -Sy)...");
-    let status = Command::new("yay").arg("-Sy").status()?;
-    if status.success() {
-        println!("[reap] Database sync complete.");
-    } else {
-        eprintln!("[reap] Database sync failed.");
-    }
-    Ok(())
 }
 
 /// Upgrade all packages

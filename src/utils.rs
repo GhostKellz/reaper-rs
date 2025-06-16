@@ -17,8 +17,9 @@ static PKGBUILD_CACHE: Lazy<std::sync::Mutex<std::collections::HashMap<String, S
     Lazy::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
 #[cfg(feature = "cache")]
-static SEARCH_CACHE: Lazy<std::sync::Mutex<std::collections::HashMap<String, Vec<SearchResult>>>> =
-    Lazy::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+static SEARCH_CACHE: Lazy<
+    std::sync::Mutex<std::collections::HashMap<String, Vec<crate::aur::SearchResult>>>,
+> = Lazy::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
 #[cfg(feature = "cache")]
 static PKGBUILD_CACHE_DIR: Lazy<std::path::PathBuf> = Lazy::new(|| {
@@ -577,10 +578,6 @@ pub fn audit_pkgbuild(pkgbuild: &str) {
             );
         }
     }
-}
-
-pub fn audit_flatpak_manifest(_pkg: &str) {
-    // Stub: Flatpak manifest audit not yet implemented
 }
 
 pub fn rollback(pkg: &str) {

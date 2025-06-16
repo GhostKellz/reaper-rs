@@ -140,12 +140,38 @@ pub enum Commands {
         #[command(subcommand)]
         cmd: ConfigCmd,
     },
+    /// Profile management
+    Profile {
+        #[command(subcommand)]
+        cmd: ProfileCmd,
+    },
+    /// Trust and security analysis
+    Trust {
+        #[command(subcommand)]
+        cmd: TrustCmd,
+    },
+    /// Rate a package
+    Rate {
+        pkg: String,
+        #[arg(short, long, help = "Rating from 1-5 stars")]
+        rating: u8,
+        #[arg(short, long, help = "Optional comment")]
+        comment: Option<String>,
+    },
+    /// Enhanced AUR operations
+    Aur {
+        #[command(subcommand)]
+        cmd: AurCmd,
+    },
 }
 
 #[derive(Subcommand, Debug)]
 pub enum FlatpakCmd {
     Search { query: String },
     Install { pkg: String },
+    Remove { pkg: String },
+    Update,
+    List,
     Upgrade,
     Audit { pkg: String },
 }
@@ -167,7 +193,7 @@ pub enum TapCmd {
         name: String,
         url: String,
         #[arg(long)]
-        priority: Option<u8>,
+        priority: u32,
     },
     Remove {
         name: String,
@@ -178,6 +204,7 @@ pub enum TapCmd {
     Disable {
         name: String,
     },
+    Update,
     Sync,
     List,
 }
@@ -192,4 +219,56 @@ pub enum ConfigCmd {
     Reset,
     /// Show full config
     Show,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ProfileCmd {
+    /// Create a new profile
+    Create {
+        name: String,
+        #[arg(long, help = "Use predefined template (developer, gaming, minimal)")]
+        template: Option<String>,
+    },
+    /// Switch to a profile
+    Switch { name: String },
+    /// List all profiles
+    List,
+    /// Show profile details
+    Show { name: String },
+    /// Delete a profile
+    Delete { name: String },
+    /// Edit profile settings
+    Edit {
+        name: String,
+        #[arg(long)]
+        backend_order: Option<String>,
+        #[arg(long)]
+        parallel_jobs: Option<usize>,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum TrustCmd {
+    /// Analyze package trust score
+    Score { pkg: String },
+    /// Scan all installed packages
+    Scan,
+    /// Show trust statistics
+    Stats,
+    /// Update trust database
+    Update,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum AurCmd {
+    /// Fetch and analyze PKGBUILD
+    Fetch { pkg: String },
+    /// Edit PKGBUILD interactively
+    Edit { pkg: String },
+    /// Check dependencies and conflicts
+    Deps {
+        pkg: String,
+        #[arg(long, help = "Check for conflicts")]
+        conflicts: bool,
+    },
 }

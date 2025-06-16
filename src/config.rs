@@ -4,24 +4,11 @@ use std::path::PathBuf;
 use toml_edit::{DocumentMut, value};
 
 #[derive(Debug, Clone)]
-pub struct PerfConfig {
-    pub fast_mode: Option<bool>,
-    pub max_parallel: Option<usize>,
-}
-#[derive(Debug, Clone)]
-pub struct SecurityConfig {
-    pub strict_signatures: Option<bool>,
-    pub allow_insecure: Option<bool>,
-}
-
-#[derive(Debug, Clone)]
 pub struct ReapConfig {
     /// Packages to ignore during upgrades
     pub ignored_packages: Vec<String>,
     /// Number of parallel jobs for install/upgrade
     pub parallel: usize,
-    pub perf: Option<PerfConfig>,
-    pub security: Option<SecurityConfig>,
 }
 
 impl ReapConfig {
@@ -29,15 +16,10 @@ impl ReapConfig {
         let global = GlobalConfig::load();
         ReapConfig {
             ignored_packages: vec![],
-            parallel: global.enable_cache.map(|x| if x { 4 } else { 2 }).unwrap_or(2),
-            perf: Some(PerfConfig {
-                fast_mode: global.enable_cache,
-                max_parallel: Some(4),
-            }),
-            security: Some(SecurityConfig {
-                strict_signatures: Some(global.enable_lua_hooks.unwrap_or(false)),
-                allow_insecure: Some(true),
-            }),
+            parallel: global
+                .enable_cache
+                .map(|x| if x { 4 } else { 2 })
+                .unwrap_or(2),
         }
     }
     /// Check if a package is ignored (used in upgrade/install logic)

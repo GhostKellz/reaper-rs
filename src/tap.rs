@@ -17,7 +17,7 @@ pub struct Tap {
 }
 
 /// Represents a publisher of packages.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Publisher {
     pub name: String,
     pub gpg_key: String,

@@ -111,6 +111,7 @@ pub async fn install_flatpak(pkg: &str) -> Result<(), Box<dyn std::error::Error 
 /// ```
 /// flatpak::upgrade();
 /// ```
+#[allow(dead_code)]
 pub fn upgrade() {
     println!("[reap] flatpak :: Upgrading all flatpak packages...");
     let status = Command::new("flatpak").arg("update").arg("-y").status();
@@ -161,6 +162,7 @@ pub async fn upgrade_flatpak() -> Result<(), Box<dyn std::error::Error + Send + 
 /// ```
 /// flatpak::print_flatpak_sandbox_info("com.example.App");
 /// ```
+#[allow(dead_code)]
 pub fn print_flatpak_sandbox_info(pkg: &str) {
     let output = Command::new("flatpak").arg("info").arg(pkg).output();
     if let Ok(out) = output {
