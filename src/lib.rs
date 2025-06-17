@@ -1,3 +1,4 @@
+pub mod analytics;
 pub mod aur;
 pub mod backend;
 pub mod cli;
@@ -6,6 +7,8 @@ pub mod core;
 pub mod enhanced_aur;
 pub mod flatpak;
 pub mod gpg;
+pub mod graph;
+pub mod history;
 pub mod hooks;
 pub mod interactive;
 pub mod pacman;

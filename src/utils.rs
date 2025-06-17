@@ -116,6 +116,7 @@ pub fn audit_package(pkg: &str) {
     }
 }
 
+#[allow(dead_code)]
 type PkgMeta = (
     Vec<String>,
     Vec<String>,
@@ -125,6 +126,7 @@ type PkgMeta = (
 );
 
 /// Parse PKGBUILD for depends, makedepends, conflicts and check system state
+#[allow(dead_code)]
 pub fn resolve_deps(pkgb: &str) -> PkgMeta {
     let mut depends = Vec::new();
     let mut makedepends = Vec::new();
@@ -191,6 +193,7 @@ pub fn resolve_deps(pkgb: &str) -> PkgMeta {
 }
 
 // --- CLI stub functions for compatibility ---
+#[allow(dead_code)]
 pub fn pkgb_diff_audit(package: &str, pkgb: &str) {
     let backup_path =
         std::path::PathBuf::from(format!("/var/lib/reaper/backup/{}_PKGBUILD.bak", package));
@@ -405,6 +408,7 @@ pub fn doctor_report() -> Result<String, String> {
     }
 }
 
+#[allow(dead_code)]
 pub fn build_pkg(pkgdir: &std::path::Path, edit: bool) -> Result<(), String> {
     use std::env;
     use std::process::Command;
@@ -543,6 +547,7 @@ pub mod cache {
 }
 
 /// Audit a PKGBUILD for risky patterns
+#[allow(dead_code)]
 pub fn audit_pkgbuild(pkgbuild: &str) {
     let risky_patterns = [
         "curl",

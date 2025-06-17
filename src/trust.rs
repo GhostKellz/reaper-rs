@@ -58,6 +58,7 @@ pub struct DependencyScan {
 }
 
 pub struct TrustEngine {
+    #[allow(dead_code)]
     cache_dir: PathBuf,
     reputation_db: HashMap<String, f32>,
 }
@@ -76,6 +77,11 @@ impl TrustEngine {
     }
 
     pub async fn compute_trust_score(&self, pkg: &str, source: &crate::core::Source) -> TrustScore {
+        // Check cache first
+        if let Some(cached_score) = self.get_cached_trust_score(pkg) {
+            return cached_score;
+        }
+
         let mut score = TrustScore {
             package: pkg.to_string(),
             signature_valid: false,
@@ -115,6 +121,9 @@ impl TrustEngine {
 
         // Calculate overall score
         score.overall_score = self.calculate_overall_score(&score);
+
+        // Cache the result
+        let _ = self.cache_trust_score(&score);
 
         score
     }
@@ -302,6 +311,7 @@ impl TrustEngine {
         score.clamp(0.0, 10.0)
     }
 
+    #[allow(dead_code)]
     pub fn get_cached_trust_score(&self, pkg: &str) -> Option<TrustScore> {
         let cache_file = self.cache_dir.join(format!("{}.json", pkg));
         if cache_file.exists() {
@@ -312,6 +322,7 @@ impl TrustEngine {
         None
     }
 
+    #[allow(dead_code)]
     pub fn cache_trust_score(&self, trust_score: &TrustScore) -> Result<()> {
         let cache_file = self.cache_dir.join(format!("{}.json", trust_score.package));
         let content = serde_json::to_string_pretty(trust_score)?;

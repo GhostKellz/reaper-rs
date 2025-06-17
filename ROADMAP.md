@@ -4,6 +4,33 @@
 
 ---
 
+## ✅ v0.5.0 Completed Features
+- ✅ **Multi-Profile Package Management**: Switch between developer, gaming, minimal profiles with different backend priorities and settings
+- ✅ **Package Verification & Trust Scoring**: Real-time security analysis with trust badges (🛡️ TRUSTED, ⚠️ CAUTION, ❌ UNSAFE)
+- ✅ **Enhanced TUI with Live Monitoring**: Real-time build progress, trust scores in search results, system stats dashboard
+- ✅ **Profile-Aware Installation**: Install behavior adapts to active profile (strict signatures, parallel jobs, backend order)
+- ✅ **Security Analytics**: Vulnerability scanning, PKGBUILD analysis, publisher verification
+- ✅ **Advanced UI Components**: Progress bars, trust badges, profile switcher, system monitoring
+- ✅ **Manual PKGBUILD retrieval from AUR**: Fetch, parse, and analyze PKGBUILDs
+- ✅ **Dependency resolution and conflict detection**: Advanced circular dependency and conflict analysis
+- ✅ **Interactive prompts**: Confirm removals, edit PKGBUILDs with safety checks
+- ✅ **Interactive `--diff` for PKGBUILDs**: TUI/CLI diff viewer with colored output
+- ✅ **Package list, queue manager, and PKGBUILD diff viewer in TUI**: Comprehensive package management interface
+- ✅ **Search, install, queue, review updates interactively**: Full interactive workflow
+- ✅ **Real-time log pane, diff viewer for PKGBUILDs**: Live monitoring and analysis
+- ✅ **AUR rating system with star emojis**: ⭐⭐⭐⭐⭐ ratings and community reviews
+- ✅ **Publisher verification badge in TUI queue**: Security indicators in package queue
+- ✅ **Audit mode to show upstream changes**: Enhanced security analysis
+- ✅ **Clean build without warnings**: All code warnings resolved for v0.5.0 release
+- ✅ **Complete release package**: PKGBUILD, install script, build automation ready
+
+## 🆕 v0.4.0 Highlights  
+- Refactored `resolve_and_install_deps` to use dynamic package lists and proper async return types
+- Fully implemented recursive AUR + repo dependency resolution with deduplication
+- `pkgb` now parsed and printed via `parse_pkgname_ver` to eliminate unused variable warnings
+- Fixed Clippy-critical errors (E0308, E0271) blocking build; reduced total warnings significantly
+- Updated core.rs to use clean `Box::pin(async move { ... })` with correct `Result<(), ()>` wrapping
+
 ## 🆕 v0.3.0-rc Highlights
 - End-to-end async/parallel install and upgrade flows (no yay/paru fallback)
 - GPG workflows: refresh, import, verify, check key, set keyserver (with clear feedback)
@@ -159,3 +186,25 @@ Current focus: TUI install queue, PKGBUILD diff viewer, plugin/hook system, audi
 - TUI colored status, badges, source highlighting
 - Audit/logging mode
 - Benchmarks and performance tracking
+
+## 🎯 v0.6.0 Planned Features
+- [ ] **Package snapshots and rollback**: System-level package state management
+- [ ] **Cross-distro package translation**: Translate package names between distributions
+- [ ] **Plugin system**: Extensible architecture with Rust/WASM plugins
+- [ ] **AI-powered package recommendations**: Smart suggestions based on usage patterns
+- [ ] **Container environment support**: Reproducible development environments
+- [ ] **Real-time vulnerability database**: CVE integration and security alerts
+- [ ] **Package marketplace**: Community ratings, reviews, and recommendations
+- [ ] **Advanced caching system**: Intelligent build cache and binary cache
+- [ ] **Network optimization**: Parallel downloads and mirror selection
+- [ ] **Mobile TUI**: Responsive interface for smaller terminals
+
+## 🔮 Future Vision (v0.7.0+)
+- [ ] **Nix/Guix backend support**: Integration with functional package managers
+- [ ] **Distributed package building**: Community build farm
+- [ ] **Package signing infrastructure**: Enhanced security with signing
+- [ ] **Integration with system package managers**: apt, dnf, zypper support
+- [ ] **Package analytics and telemetry**: Usage statistics and optimization
+- [ ] **Advanced dependency solver**: SAT-based dependency resolution
+- [ ] **Package virtualization**: Isolated package environments
+- [ ] **Cloud synchronization**: Profile and settings sync across devices

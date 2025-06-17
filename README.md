@@ -93,6 +93,41 @@ reap rollback <pkg>
 
 ---
 
+## 🚀 Enhanced Usage Examples
+
+```bash
+# 🔍 Enhanced package operations with trust and ratings
+reap install firefox --diff          # Show PKGBUILD diff before install
+reap trust score firefox             # Check package security score  
+reap rate firefox 5 "Great browser!" # Rate with stars and comment
+
+# 👤 Profile management for different workflows
+reap profile create dev --template developer
+reap profile switch gaming
+reap profile show dev
+
+# 🔧 Advanced AUR operations
+reap aur fetch yay                    # Get PKGBUILD for analysis
+reap aur edit custom-package          # Interactive PKGBUILD editing
+reap aur deps firefox --conflicts     # Advanced dependency checking
+
+# 📋 Interactive TUI with live monitoring  
+reap tui                              # Launch enhanced TUI
+# Hotkeys: t=trust, r=rate, d=diff, p=profile, TAB=details
+
+# 🛡️ Security and trust operations
+reap trust scan                       # Scan all packages for security
+reap trust stats                      # Show trust statistics
+
+# Standard package operations (enhanced with trust/ratings)
+reap search firefox                   # Search with trust badges
+reap install firefox                  # Install with security checks
+reap remove firefox                   # Interactive removal confirmation
+reap upgrade                          # System upgrade with progress
+```
+
+---
+
 ## 🔐 Secure Publisher Verification
 
 Reaper ensures that all tap-based packages are cryptographically verified before install (unless you use `--insecure`).
@@ -233,9 +268,24 @@ See [Full Docs](DOCS.md#configuration) for advanced configuration and Lua config
 
 ## 📚 Documentation
 
-* [Command Reference](COMMANDS.md)
-* [Full Docs](DOCS.md)
-* `reap doctor` – validate your environment
+### User Documentation
+- **[Features Guide](FEATURES.md)** - Comprehensive feature overview
+- **[Security Guide](SECURITY.md)** - Security features and best practices
+- **[Profile Management](docs/profiles.md)** - Multi-profile system guide
+- **[Trust System](docs/trust.md)** - Package trust and security analysis
+- **[Interactive Features](docs/interactive.md)** - Rating system and prompts
+- **[TUI Guide](docs/tui.md)** - Enhanced terminal user interface
+
+### Developer Documentation  
+- **[API Reference](API.md)** - Complete API documentation
+- **[Architecture](ARCHITECTURE.md)** - System design and structure
+- **[Contributing](CONTRIBUTING.md)** - Development and contribution guide
+- **[Roadmap](ROADMAP.md)** - Future development plans
+
+### Quick References
+- **[CLI Commands](docs/cli.md)** - Command-line reference
+- **[Configuration](docs/config.md)** - Configuration options
+- **[Troubleshooting](docs/troubleshooting.md)** - Common issues and solutions
 
 ---
 
@@ -286,4 +336,52 @@ Checks performed:
 - **No yay/paru fallback: all logic is native Rust.**
 
 ☠️ Built with paranoia by **GhostKellz**
+
+---
+
+## 🆕 v0.5.0 New Features
+
+### 🛡️ Trust & Security Engine
+- **Real-time trust scoring**: Every package gets a security score (0-10) with trust badges
+- **Security analysis**: PKGBUILD scanning, signature verification, publisher checks
+- **Trust badges**: 🛡️ TRUSTED, ✅ VERIFIED, ⚠️ CAUTION, ❌ UNSAFE
+```bash
+reap trust score firefox    # Show trust analysis
+reap trust scan             # Scan all installed packages
+```
+
+### ⭐ Community Rating System  
+- **AUR integration**: Real community votes and popularity scores
+- **Star ratings**: Rate packages 1-5 stars with comments
+- **Visual display**: ⭐⭐⭐⭐⭐ ratings in TUI and CLI
+```bash
+reap rate firefox 5 "Excellent browser!"
+reap rate vim 4
+```
+
+### 🔧 Advanced AUR Operations
+- **PKGBUILD fetching**: Manual retrieval and parsing
+- **Interactive editing**: Safe PKGBUILD modification with confirmations
+- **Conflict detection**: Advanced dependency analysis and circular detection
+```bash
+reap aur fetch firefox          # Get and analyze PKGBUILD
+reap aur edit firefox           # Interactive editing
+reap aur deps firefox --conflicts # Check for conflicts
+```
+
+### 👤 Multi-Profile Management
+- **Profile switching**: Developer, gaming, minimal presets
+- **Custom settings**: Backend order, security levels, parallel jobs
+```bash
+reap profile create dev --template developer
+reap profile switch gaming
+reap profile list
+```
+
+### 📋 Enhanced Interactive TUI
+- **5 comprehensive tabs**: Search, Queue, Log, Profiles, System
+- **Live monitoring**: Real-time build progress and system stats
+- **Trust + rating display**: Combined security and community scores
+- **Package details panel**: Full package information with reviews
+- **Interactive hotkeys**: `t` trust, `r` rate, `d` diff, `p` profile
 

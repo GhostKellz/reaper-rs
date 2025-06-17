@@ -95,7 +95,7 @@ impl InteractiveManager {
         }
 
         // Fetch from AUR API
-        let _aur_info = self.fetch_aur_info(package).await?;
+        self.fetch_aur_info(package).await?;
 
         let rating = PackageRating {
             package: package.to_string(),
@@ -215,6 +215,7 @@ impl InteractiveManager {
     }
 
     /// Interactive package selection
+    #[allow(dead_code)]
     pub fn select_from_list(&self, items: &[String], prompt: &str) -> Option<usize> {
         println!("\n{}", prompt);
         for (i, item) in items.iter().enumerate() {
