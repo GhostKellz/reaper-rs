@@ -1,10 +1,10 @@
 #!/bin/bash
 # Reaper Build Script for Release Packaging
-# Creates release artifacts for v0.5.0
+# Creates release artifacts for v0.6.0
 
 set -e
 
-VERSION="0.5.0"
+VERSION="0.6.0"
 TARGET_DIR="target/release"
 RELEASE_DIR="release/artifacts"
 COMPLETION_DIR="completions"
@@ -217,39 +217,48 @@ release_notes() {
     cat > "$RELEASE_DIR/RELEASE_NOTES.md" << EOF
 # Reaper v$VERSION Release
 
-🛡️ **Major Security & Trust Engine Update**
+🚀 **Advanced TUI with Real-time Monitoring**
 
-## 🔥 What's New
+## 🔥 What's New in v0.6.0
 
-### 🛡️ Trust & Security Engine
-- **Real-time trust scoring** (0-10 scale) for all packages
-- **Security badges**: 🛡️ TRUSTED, ✅ VERIFIED, ⚠️ CAUTION, 🚨 RISKY, ❌ UNSAFE  
-- **PKGBUILD security analysis** detecting suspicious patterns
-- **PGP signature verification** with comprehensive validation
-- **Publisher verification** system for package maintainers
+### 📊 Advanced TUI with Real-time Monitoring
+- **Real-time package operation monitoring** with live status updates
+- **Enhanced search interface** with backend filtering (AUR/Flatpak/Pacman)
+- **Queue management system** for batch operations
+- **Live log viewer** with color-coded output
+- **System monitoring tab** showing disk usage, updates, and health
 
-### ⭐ Community Rating System  
-- **AUR integration** showing real community votes and popularity
-- **User rating system** with 1-5 star ratings and comments
-- **Visual star display** (⭐⭐⭐⭐⭐) in TUI and CLI output
+### 🔧 Improved Flatpak Integration
+- **Better error handling** for Flatpak operations
+- **Automatic Flathub repository setup** during installation
+- **Non-interactive installation mode** for automation
+- **Enhanced search parsing** for accurate results
+- **Flatpak availability detection** before operations
 
-### 👤 Multi-Profile Management
-- **Profile system** with switchable configurations
-- **Profile templates**: Developer, Gaming, Minimal presets  
-- **Profile-aware operations** adapting to active profile
-- **Security policy inheritance** from profiles
+### 🛠️ Enhanced Installation Experience
+- **Robust installer script** with comprehensive error handling
+- **Automatic fallback to source build** when binaries unavailable
+- **Support for multiple architectures** (x86_64, aarch64, armv7h)
+- **Improved dependency checking** with clear error messages
+- **Test suite** for verifying installation integrity
 
-### 🔧 Enhanced AUR Operations
-- **Manual PKGBUILD fetching** with comprehensive parsing
-- **Interactive PKGBUILD editing** with safety confirmations
-- **Advanced dependency resolution** with circular dependency detection
-- **Conflict detection** for package, file, and version conflicts
+### 🔒 Security & Profile Enhancements
+- **New security profile template** with strict verification
+- **Enhanced profile descriptions** for better understanding
+- **Flatpak configuration section** in main config
+- **Improved hook system** with environment variables
 
-### 📋 Enhanced Interactive TUI
-- **Five-tab interface**: Search, Queue, Log, Profiles, System
-- **Live build progress** with real-time makepkg output
-- **Trust score integration** in all package listings
-- **Interactive hotkeys**: \`t\` trust, \`r\` rate, \`d\` diff, \`p\` profiles
+### 🐛 Bug Fixes
+- Fixed Flatpak search result parsing issues
+- Resolved installation errors with missing error handling
+- Corrected doc comment syntax errors
+- Improved error messages throughout the codebase
+
+## 🏗️ Infrastructure Updates
+- Updated CI/CD workflow with correct test logic
+- Enhanced build script for multi-architecture support
+- Comprehensive test suite for installation verification
+- Improved release packaging process
 
 ## 📥 Installation
 
