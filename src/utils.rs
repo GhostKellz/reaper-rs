@@ -24,7 +24,7 @@ pub async fn async_get_pkgbuild_cached(pkg: &str) -> String {
     if let Some(cached) = cache::load_pkgbuild(pkg) {
         return cached;
     }
-    
+
     // If not cached, fetch from AUR
     let pkgb_preview = crate::aur::get_pkgbuild_preview(pkg);
     println!("[utils] PKGBUILD preview for {}:\n{}", pkg, pkgb_preview);
@@ -36,7 +36,7 @@ pub async fn async_get_pkgbuild_cached(pkg: &str) -> String {
     if pkgb_preview.contains("pkgname") {
         println!("[utils] PKGBUILD for {} contains a pkgname field.", pkg);
     }
-    
+
     // Save to cache
     cache::save_pkgbuild(pkg, &pkgb_preview);
     pkgb_preview
@@ -309,7 +309,7 @@ pub fn clean_cache() -> Result<String, String> {
         ensure_cache_dirs(); // Ensure cache dirs exist before cleaning
         cache::expire_cache();
     }
-    
+
     let home = dirs::home_dir().unwrap_or_default();
     let cache_dirs = vec![
         "/tmp/reap".to_string(),
@@ -461,7 +461,7 @@ pub mod cache {
             .unwrap_or_else(|| PathBuf::from("/tmp"))
             .join("reap/pkgbuilds")
     });
-    
+
     pub static SEARCH_CACHE_DIR: Lazy<PathBuf> = Lazy::new(|| {
         dirs::cache_dir()
             .unwrap_or_else(|| PathBuf::from("/tmp"))
@@ -524,48 +524,48 @@ pub mod cache {
 #[allow(dead_code)]
 pub fn audit_pkgbuild(pkgbuild: &str) -> (Vec<String>, i32) {
     let risky_patterns = [
-        ("curl", 2),           // Network downloads
-        ("wget", 2),           // Network downloads  
-        ("sudo", 9),           // Privilege escalation
-        ("rm -rf", 8),         // Destructive operations
-        ("chmod 777", 7),      // Insecure permissions
-        ("chown", 5),          // Ownership changes
-        ("dd", 8),             // Low-level disk operations
-        ("mkfs", 9),           // Filesystem creation
-        ("mount", 7),          // Filesystem mounting
-        ("scp", 4),            // Network file transfer
-        ("nc", 6),             // Network connections
-        ("ncat", 6),           // Network connections
-        ("bash -c", 5),        // Dynamic code execution
-        ("eval", 7),           // Dynamic code execution
-        ("setcap", 6),         // Capability management
-        ("setuid", 8),         // SUID bit setting
-        ("setgid", 7),         // SGID bit setting
-        ("useradd", 6),        // User management
-        ("groupadd", 5),       // Group management
-        ("passwd", 7),         // Password changes
-        ("iptables", 6),       // Firewall rules
-        ("firewalld", 6),      // Firewall management
-        ("systemctl", 4),      // Service management
-        ("service", 4),        // Service management
-        ("pkexec", 8),         // Privilege escalation
-        ("gksu", 8),           // Privilege escalation
-        ("kdesu", 8),          // Privilege escalation
-        ("exec", 6),           // Code execution
-        ("system(", 7),        // System calls
-        ("os.system", 7),      // Python system calls
-        ("subprocess", 5),     // Process spawning
-        ("shell=True", 6),     // Shell execution
+        ("curl", 2),               // Network downloads
+        ("wget", 2),               // Network downloads
+        ("sudo", 9),               // Privilege escalation
+        ("rm -rf", 8),             // Destructive operations
+        ("chmod 777", 7),          // Insecure permissions
+        ("chown", 5),              // Ownership changes
+        ("dd", 8),                 // Low-level disk operations
+        ("mkfs", 9),               // Filesystem creation
+        ("mount", 7),              // Filesystem mounting
+        ("scp", 4),                // Network file transfer
+        ("nc", 6),                 // Network connections
+        ("ncat", 6),               // Network connections
+        ("bash -c", 5),            // Dynamic code execution
+        ("eval", 7),               // Dynamic code execution
+        ("setcap", 6),             // Capability management
+        ("setuid", 8),             // SUID bit setting
+        ("setgid", 7),             // SGID bit setting
+        ("useradd", 6),            // User management
+        ("groupadd", 5),           // Group management
+        ("passwd", 7),             // Password changes
+        ("iptables", 6),           // Firewall rules
+        ("firewalld", 6),          // Firewall management
+        ("systemctl", 4),          // Service management
+        ("service", 4),            // Service management
+        ("pkexec", 8),             // Privilege escalation
+        ("gksu", 8),               // Privilege escalation
+        ("kdesu", 8),              // Privilege escalation
+        ("exec", 6),               // Code execution
+        ("system(", 7),            // System calls
+        ("os.system", 7),          // Python system calls
+        ("subprocess", 5),         // Process spawning
+        ("shell=True", 6),         // Shell execution
         ("unsafeFunctionCall", 9), // Known unsafe patterns
-        ("download_file", 3),  // File downloads
-        ("git clone", 3),      // Source downloads
-        ("tar -x", 2),         // Archive extraction
-        ("unzip", 2),          // Archive extraction
+        ("download_file", 3),      // File downloads
+        ("git clone", 3),          // Source downloads
+        ("tar -x", 2),             // Archive extraction
+        ("unzip", 2),              // Archive extraction
     ];
-    
+
     let mut warnings = Vec::new();
     let mut risk_score = 0;
-    
+
     for (pattern, severity) in &risky_patterns {
         if pkgbuild.contains(pattern) {
             warnings.push(format!(
@@ -575,58 +575,84 @@ pub fn audit_pkgbuild(pkgbuild: &str) -> (Vec<String>, i32) {
             risk_score += severity;
         }
     }
-    
+
     // Check for suspicious URLs
     let suspicious_domains = [
-        "bit.ly", "tinyurl.com", "t.co", "goo.gl", // URL shorteners
-        "pastebin.com", "hastebin.com",            // Code paste sites
-        "tempfile.org", "0x0.st",                  // Temporary file hosts
+        "bit.ly",
+        "tinyurl.com",
+        "t.co",
+        "goo.gl", // URL shorteners
+        "pastebin.com",
+        "hastebin.com", // Code paste sites
+        "tempfile.org",
+        "0x0.st", // Temporary file hosts
     ];
-    
+
     for domain in &suspicious_domains {
         if pkgbuild.contains(domain) {
-            warnings.push(format!("🚨 SECURITY: Suspicious domain detected: {}", domain));
+            warnings.push(format!(
+                "🚨 SECURITY: Suspicious domain detected: {}",
+                domain
+            ));
             risk_score += 5;
         }
     }
-    
+
     // Check for hardcoded credentials
     let credential_patterns = [
-        "password=", "passwd=", "api_key=", "apikey=", "secret=", "token=",
-        "auth=", "login=", "user=", "pass=",
+        "password=",
+        "passwd=",
+        "api_key=",
+        "apikey=",
+        "secret=",
+        "token=",
+        "auth=",
+        "login=",
+        "user=",
+        "pass=",
     ];
-    
+
     for pattern in &credential_patterns {
         if pkgbuild.to_lowercase().contains(pattern) {
-            warnings.push(format!("🔐 SECURITY: Potential hardcoded credential: {}", pattern));
+            warnings.push(format!(
+                "🔐 SECURITY: Potential hardcoded credential: {}",
+                pattern
+            ));
             risk_score += 6;
         }
     }
-    
+
     // Check for network operations without verification
-    if pkgbuild.contains("curl") && !pkgbuild.contains("--verify") && !pkgbuild.contains("checksum") {
+    if pkgbuild.contains("curl") && !pkgbuild.contains("--verify") && !pkgbuild.contains("checksum")
+    {
         warnings.push("🌐 SECURITY: Network download without verification detected".to_string());
         risk_score += 4;
     }
-    
+
     if warnings.is_empty() {
         println!("✅ PKGBUILD security scan: No obvious security issues found");
     } else {
-        println!("⚠️ PKGBUILD security scan found {} potential issues:", warnings.len());
+        println!(
+            "⚠️ PKGBUILD security scan found {} potential issues:",
+            warnings.len()
+        );
         for warning in &warnings {
             println!("  {}", warning);
         }
     }
-    
+
     let security_level = match risk_score {
         0..=5 => "LOW",
-        6..=15 => "MEDIUM", 
+        6..=15 => "MEDIUM",
         16..=30 => "HIGH",
         _ => "CRITICAL",
     };
-    
-    println!("🛡️ Security Risk Score: {} ({})", risk_score, security_level);
-    
+
+    println!(
+        "🛡️ Security Risk Score: {} ({})",
+        risk_score, security_level
+    );
+
     (warnings, risk_score)
 }
 

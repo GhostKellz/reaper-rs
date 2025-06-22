@@ -1,8 +1,8 @@
 // Core feature tests for Reap v0.3.0-rc
 use anyhow::{Context, Result};
 use reap::config::GlobalConfig;
-use reap::utils;
 use reap::flatpak::install_flatpak;
+use reap::utils;
 use std::fs;
 
 /// Test configuration precedence by simulating a config file and checking the precedence of settings.

@@ -332,118 +332,162 @@ pub fn get_outdated() -> Vec<String> {
 }
 
 /// Parallel search across multiple queries with smart caching
-pub async fn parallel_search(queries: &[String]) -> Result<Vec<SearchResult>, Box<dyn Error + Send + Sync>> {
+pub async fn parallel_search(
+    queries: &[String],
+) -> Result<Vec<SearchResult>, Box<dyn Error + Send + Sync>> {
     let start = Instant::now();
-    println!("[aur] Starting parallel search for {} queries", queries.len());
-    
+    println!(
+        "[aur] Starting parallel search for {} queries",
+        queries.len()
+    );
+
     let client = Client::new();
-    let tasks: Vec<_> = queries.iter().map(|query| {
-        let client = client.clone();
-        let query = query.clone();
-        
-        async move {
-            // Check cache first
-            #[cfg(feature = "cache")]
-            if let Some(cached) = utils::get_cached_search(&query) {
-                println!("[aur] Cache hit for query: {}", query);
-                return Ok(cached);
+    let tasks: Vec<_> = queries
+        .iter()
+        .map(|query| {
+            let client = client.clone();
+            let query = query.clone();
+
+            async move {
+                // Check cache first
+                #[cfg(feature = "cache")]
+                if let Some(cached) = utils::get_cached_search(&query) {
+                    println!("[aur] Cache hit for query: {}", query);
+                    return Ok(cached);
+                }
+
+                // Fetch from AUR with timeout
+                let url = format!(
+                    "https://aur.archlinux.org/rpc/?v=5&type=search&arg={}",
+                    query
+                );
+                let response = timeout(Duration::from_secs(10), client.get(&url).send()).await??;
+                let aur_resp: AurResponse = response.json().await?;
+
+                let results: Vec<SearchResult> = aur_resp
+                    .results
+                    .into_iter()
+                    .map(|r| SearchResult {
+                        name: r.name,
+                        version: r.version,
+                        description: r.description.unwrap_or_default(),
+                        source: crate::core::Source::Aur,
+                    })
+                    .collect();
+
+                // Cache the results
+                #[cfg(feature = "cache")]
+                utils::cache_search_result(&query, &results);
+
+                println!(
+                    "[aur] Fetched {} results for query: {}",
+                    results.len(),
+                    query
+                );
+                Ok(results)
             }
-            
-            // Fetch from AUR with timeout
-            let url = format!("https://aur.archlinux.org/rpc/?v=5&type=search&arg={}", query);
-            let response = timeout(Duration::from_secs(10), client.get(&url).send()).await??;
-            let aur_resp: AurResponse = response.json().await?;
-            
-            let results: Vec<SearchResult> = aur_resp.results.into_iter().map(|r| SearchResult {
-                name: r.name,
-                version: r.version,
-                description: r.description.unwrap_or_default(),
-                source: crate::core::Source::Aur,
-            }).collect();
-            
-            // Cache the results
-            #[cfg(feature = "cache")]
-            utils::cache_search_result(&query, &results);
-            
-            println!("[aur] Fetched {} results for query: {}", results.len(), query);
-            Ok(results)
-        }
-    }).collect();
-    
-    let results: Vec<Result<Vec<SearchResult>, Box<dyn Error + Send + Sync>>> = join_all(tasks).await;
+        })
+        .collect();
+
+    let results: Vec<Result<Vec<SearchResult>, Box<dyn Error + Send + Sync>>> =
+        join_all(tasks).await;
     let mut all_results = Vec::new();
-    
+
     for result in results {
         match result {
             Ok(search_results) => all_results.extend(search_results),
             Err(e) => eprintln!("[aur] Search error: {}", e),
         }
     }
-    
+
     let elapsed = start.elapsed();
-    println!("[aur] Parallel search completed in {:?}, found {} total results", elapsed, all_results.len());
-    
+    println!(
+        "[aur] Parallel search completed in {:?}, found {} total results",
+        elapsed,
+        all_results.len()
+    );
+
     Ok(all_results)
 }
 
 /// Parallel PKGBUILD downloads for multiple packages
-pub async fn parallel_pkgbuild_fetch(packages: &[String]) -> Result<Vec<(String, String)>, Box<dyn Error + Send + Sync>> {
+pub async fn parallel_pkgbuild_fetch(
+    packages: &[String],
+) -> Result<Vec<(String, String)>, Box<dyn Error + Send + Sync>> {
     let start = Instant::now();
-    println!("[aur] Starting parallel PKGBUILD fetch for {} packages", packages.len());
-    
+    println!(
+        "[aur] Starting parallel PKGBUILD fetch for {} packages",
+        packages.len()
+    );
+
     let client = Client::new();
-    let tasks: Vec<_> = packages.iter().map(|pkg| {
-        let client = client.clone();
-        let pkg = pkg.clone();
-        
-        async move {
-            // Check cache first
-            #[cfg(feature = "cache")]
-            if let Some(cached) = utils::cache::load_pkgbuild(&pkg) {
-                println!("[aur] PKGBUILD cache hit for: {}", pkg);
-                return Ok((pkg.clone(), cached));
-            }
-            
-            // Fetch PKGBUILD from AUR
-            let url = format!("https://aur.archlinux.org/cgit/aur.git/plain/PKGBUILD?h={}", pkg);
-            let response = timeout(Duration::from_secs(15), client.get(&url).send()).await??;
-            
-            if response.status().is_success() {
-                let pkgbuild = response.text().await?;
-                
-                // Cache the PKGBUILD
+    let tasks: Vec<_> = packages
+        .iter()
+        .map(|pkg| {
+            let client = client.clone();
+            let pkg = pkg.clone();
+
+            async move {
+                // Check cache first
                 #[cfg(feature = "cache")]
-                utils::cache::save_pkgbuild(&pkg, &pkgbuild);
-                
-                println!("[aur] Downloaded PKGBUILD for: {}", pkg);
-                Ok((pkg, pkgbuild))
-            } else {
-                Err(format!("Failed to fetch PKGBUILD for {}: HTTP {}", pkg, response.status()).into())
+                if let Some(cached) = utils::cache::load_pkgbuild(&pkg) {
+                    println!("[aur] PKGBUILD cache hit for: {}", pkg);
+                    return Ok((pkg.clone(), cached));
+                }
+
+                // Fetch PKGBUILD from AUR
+                let url = format!(
+                    "https://aur.archlinux.org/cgit/aur.git/plain/PKGBUILD?h={}",
+                    pkg
+                );
+                let response = timeout(Duration::from_secs(15), client.get(&url).send()).await??;
+
+                if response.status().is_success() {
+                    let pkgbuild = response.text().await?;
+
+                    // Cache the PKGBUILD
+                    #[cfg(feature = "cache")]
+                    utils::cache::save_pkgbuild(&pkg, &pkgbuild);
+
+                    println!("[aur] Downloaded PKGBUILD for: {}", pkg);
+                    Ok((pkg, pkgbuild))
+                } else {
+                    Err(format!(
+                        "Failed to fetch PKGBUILD for {}: HTTP {}",
+                        pkg,
+                        response.status()
+                    )
+                    .into())
+                }
             }
-        }
-    }).collect();
-    
-    let results: Vec<Result<(String, String), Box<dyn Error + Send + Sync>>> = join_all(tasks).await;
+        })
+        .collect();
+
+    let results: Vec<Result<(String, String), Box<dyn Error + Send + Sync>>> =
+        join_all(tasks).await;
     let mut successful_downloads = Vec::new();
-    
+
     for result in results {
         match result {
             Ok(download) => successful_downloads.push(download),
             Err(e) => eprintln!("[aur] PKGBUILD fetch error: {}", e),
         }
     }
-    
+
     let elapsed = start.elapsed();
-    println!("[aur] Parallel PKGBUILD fetch completed in {:?}, {} successful downloads", 
-             elapsed, successful_downloads.len());
-    
+    println!(
+        "[aur] Parallel PKGBUILD fetch completed in {:?}, {} successful downloads",
+        elapsed,
+        successful_downloads.len()
+    );
+
     Ok(successful_downloads)
 }
 
 /// Smart cache warming - preload popular packages
 pub async fn warm_cache() -> Result<(), Box<dyn Error + Send + Sync>> {
     println!("[aur] Warming cache with popular packages...");
-    
+
     let popular_packages = vec![
         "yay".to_string(),
         "visual-studio-code-bin".to_string(),
@@ -456,10 +500,10 @@ pub async fn warm_cache() -> Result<(), Box<dyn Error + Send + Sync>> {
         "brave-bin".to_string(),
         "telegram-desktop".to_string(),
     ];
-    
+
     let _ = parallel_search(&popular_packages).await?;
     let _ = parallel_pkgbuild_fetch(&popular_packages).await?;
-    
+
     println!("[aur] Cache warming completed");
     Ok(())
 }

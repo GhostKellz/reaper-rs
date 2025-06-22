@@ -84,7 +84,7 @@ pub enum Commands {
         diff: bool,
     },
     /// Install multiple packages in parallel
-    BatchInstall { 
+    BatchInstall {
         pkgs: Vec<String>,
         #[arg(long)]
         parallel: bool,

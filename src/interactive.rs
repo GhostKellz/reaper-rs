@@ -198,8 +198,6 @@ impl InteractiveManager {
         Ok(())
     }
 
-
-
     /// Interactive package selection
     #[allow(dead_code)]
     pub fn select_from_list(&self, items: &[String], prompt: &str) -> Option<usize> {
