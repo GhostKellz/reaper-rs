@@ -30,8 +30,8 @@ jobs:
 
       - name: Build (feature matrix)
         run: |
+          cargo build --release
           cargo build --release --features cache
-          cargo build --release --features "cache flatpak"
 
       - name: Test
         run: cargo test --verbose
@@ -53,17 +53,17 @@ jobs:
 
       - name: Build release binary
         run: |
-          cargo build --release --all-features
-          strip target/release/reap
+          cargo build --release
+          strip target/x86_64-unknown-linux-gnu/release/reap
 
       - name: Create release artifacts
         run: |
           mkdir -p release-artifacts
-          cp target/release/reap release-artifacts/reap-x86_64
+          cp target/x86_64-unknown-linux-gnu/release/reap release-artifacts/reap-x86_64
           chmod +x release-artifacts/reap-x86_64
           
           # Create archive
-          tar -czf release-artifacts/reaper-${{ github.ref_name }}-x86_64-linux-gnu.tar.gz -C target/release reap
+          tar -czf release-artifacts/reaper-${{ github.ref_name }}-x86_64-linux-gnu.tar.gz -C target/x86_64-unknown-linux-gnu/release reap
           
           # Copy additional files
           cp release/install.sh release-artifacts/
