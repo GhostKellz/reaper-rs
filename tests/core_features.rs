@@ -9,9 +9,19 @@ use std::fs;
 #[test]
 fn test_config_precedence() -> Result<()> {
     let config_path = reap::config::config_path();
+
+    // Create parent directory if it doesn't exist
+    if let Some(parent) = config_path.parent() {
+        fs::create_dir_all(parent).context("Failed to create config directory")?;
+    }
+
     fs::write(
         &config_path,
-        "backend_order = ['aur', 'flatpak']\nauto_resolve_deps = false\n",
+        r#"backend_order = ['aur', 'flatpak']
+auto_resolve_deps = false
+noconfirm = true
+log_verbose = false
+"#,
     )
     .context("Failed to write config file")?;
     let cfg = GlobalConfig::load();

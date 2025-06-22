@@ -34,7 +34,7 @@ jobs:
           cargo build --release --features cache
 
       - name: Test
-        run: cargo test --verbose
+        run: cargo test --tests
 
   release:
     runs-on: self-hosted
