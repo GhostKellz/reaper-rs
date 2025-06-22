@@ -123,7 +123,7 @@ pub fn install(pkg: &str) {
         Ok(s) if s.success() => {
             println!("[reap] Successfully installed: {}", pkg);
         }
-        Ok(s) => {
+        Ok(_s) => {
             // Try without specifying remote
             let retry = Command::new("flatpak")
                 .arg("install")
