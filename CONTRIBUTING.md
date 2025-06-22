@@ -49,7 +49,7 @@ sudo pacman -S cargo-audit cargo-outdated
 
 ### Building from Source
 ```bash
-git clone https://github.com/face-hh/reaper.git
+git clone https://github.com/GhostKellz/reaper.git
 cd reaper
 cargo build --release
 cargo test

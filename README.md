@@ -1,9 +1,9 @@
 [![Arch Linux](https://img.shields.io/badge/platform-Arch%20Linux-1793d1?logo=arch-linux&logoColor=white)](https://archlinux.org)
 [![Made with Rust](https://img.shields.io/badge/made%20with-Rust-000000?logo=rust&logoColor=white)](https://www.rust-lang.org/)
-[![Status](https://img.shields.io/badge/status-active-success?style=flat-square)](https://github.com/ghostkellz/reaper)
-[![Build](https://img.shields.io/github/actions/workflow/status/ghostkellz/reaper/main.yml?branch=main)](https://github.com/ghostkellz/reaper/actions)
+[![Status](https://img.shields.io/badge/status-active-success?style=flat-square)](https://github.com/GhostKellz/reaper)
+[![Build](https://img.shields.io/github/actions/workflow/status/GhostKellz/reaper/main.yml?branch=main)](https://github.com/GhostKellz/reaper/actions)
 ![Built with Clap](https://img.shields.io/badge/built%20with-clap-orange)
-![License](https://img.shields.io/github/license/ghostkellz/reaper)
+![License](https://img.shields.io/github/license/GhostKellz/reaper)
 
 # ☠️ Reaper Package Manager
 
@@ -32,6 +32,12 @@
 ---
 
 ## 📦 Installation
+
+### 🔥 Quick Install (Recommended)
+
+```bash
+curl -sSL https://raw.githubusercontent.com/GhostKellz/reaper/main/release/install.sh | bash
+```
 
 ### Build from Source
 
@@ -339,7 +345,53 @@ Checks performed:
 
 ---
 
-## 🆕 v0.5.0 New Features
+## 🆕 v0.6.0 New Features
+
+### ⚡ High-Performance Operations  
+- **Parallel downloads**: Multi-threaded PKGBUILD fetching and search operations
+- **Smart caching**: TTL-based cache with automatic warming for popular packages
+- **Batch operations**: Install/upgrade multiple packages simultaneously
+```bash
+reap batch-install firefox discord spotify --parallel
+reap parallel-upgrade firefox chromium
+reap perf warm-cache                # Preload popular packages
+reap perf parallel-search "browser" "editor" "media"
+```
+
+### 🛡️ Advanced Security Analysis
+- **Enhanced PKGBUILD scanning**: 38 security patterns, risk scoring (0-100)
+- **Suspicious domain detection**: URL shorteners, paste sites, temp hosts
+- **Credential pattern detection**: Hardcoded passwords, API keys, tokens
+- **Security risk scoring**: LOW/MEDIUM/HIGH/CRITICAL classifications
+```bash
+reap security audit firefox        # Detailed security analysis
+reap security scan-all             # Scan all installed packages
+reap security stats                # Show security statistics
+```
+
+### 🚀 Performance & Caching Commands
+- **Cache management**: Statistics, warming, and intelligent cleanup
+- **Parallel operations**: Concurrent downloads and processing
+- **Performance monitoring**: Operation timing and optimization
+```bash
+reap perf cache-stats              # Show cache statistics
+reap perf parallel-fetch yay firefox discord  # Parallel PKGBUILD fetch
+reap perf clear-cache              # Smart cache cleanup
+```
+
+### 🔧 Enhanced Batch Operations
+- **Multi-package installs**: Handle dependencies and conflicts intelligently
+- **Priority-based processing**: Critical packages first, with smart ordering
+- **Progress tracking**: Real-time status for batch operations
+```bash
+reap batch-install pkg1 pkg2 pkg3  # Sequential with backups
+reap batch-install pkg1 pkg2 --parallel  # Parallel processing
+```
+
+### 📊 System Integration
+- **Intelligent backup system**: Pre-install state snapshots with rollback
+- **Advanced conflict detection**: File ownership and dependency analysis
+- **Performance analytics**: Build time tracking and optimization hints
 
 ### 🛡️ Trust & Security Engine
 - **Real-time trust scoring**: Every package gets a security score (0-10) with trust badges

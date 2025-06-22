@@ -198,21 +198,7 @@ impl InteractiveManager {
         Ok(())
     }
 
-    /// Interactive diff viewer for PKGBUILD changes
-    pub fn show_interactive_diff(&self, package: &str, old_content: &str, new_content: &str) {
-        println!("\n📋 PKGBUILD Changes for {}:", package);
-        println!("{}", "=".repeat(60));
 
-        for diff in diff::lines(old_content, new_content) {
-            match diff {
-                diff::Result::Left(l) => println!("🔴 - {}", l),
-                diff::Result::Right(r) => println!("🟢 + {}", r),
-                diff::Result::Both(l, _) => println!("   {}", l),
-            }
-        }
-
-        println!("{}", "=".repeat(60));
-    }
 
     /// Interactive package selection
     #[allow(dead_code)]

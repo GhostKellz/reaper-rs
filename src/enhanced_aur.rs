@@ -154,9 +154,7 @@ impl EnhancedAurManager {
     }
 
     fn parse_array_line(&self, line: &str, prefix: &str) -> Vec<String> {
-        let content = line
-            .trim_start_matches(prefix)
-            .trim_end_matches(')');
+        let content = line.trim_start_matches(prefix).trim_end_matches(')');
         self.parse_array_content(content)
     }
 
@@ -181,7 +179,8 @@ impl EnhancedAurManager {
         conflicts.extend(file_conflicts);
 
         for package in packages {
-            self.resolve_iterative(package, &mut resolved_deps, &mut conflicts).await?;
+            self.resolve_iterative(package, &mut resolved_deps, &mut conflicts)
+                .await?;
         }
 
         Ok(conflicts)
@@ -205,7 +204,9 @@ impl EnhancedAurManager {
 
             // Get package info and check for conflicts
             if let Ok(pkgbuild) = self.fetch_pkgbuild(&package).await {
-                let version_conflicts = self.check_version_conflicts(&package, &pkgbuild, resolved).await;
+                let version_conflicts = self
+                    .check_version_conflicts(&package, &pkgbuild, resolved)
+                    .await;
                 conflicts.extend(version_conflicts);
 
                 // Add dependencies to stack
@@ -248,9 +249,7 @@ impl EnhancedAurManager {
     #[allow(dead_code)]
     fn get_package_file_conflicts(&self, package: &str) -> Option<Vec<(String, String)>> {
         // Query pacman for installed files and check for conflicts
-        let output = Command::new("pacman")
-            .args(["-Ql", package])
-            .output();
+        let output = Command::new("pacman").args(["-Ql", package]).output();
 
         if let Ok(output) = output {
             if !output.status.success() {
@@ -282,9 +281,7 @@ impl EnhancedAurManager {
 
     #[allow(dead_code)]
     fn check_file_owner(&self, file_path: &str) -> Option<String> {
-        let output = Command::new("pacman")
-            .args(["-Qo", file_path])
-            .output();
+        let output = Command::new("pacman").args(["-Qo", file_path]).output();
 
         if let Ok(output) = output {
             if output.status.success() {
@@ -309,7 +306,10 @@ impl EnhancedAurManager {
         let pkgbuild_path = self.cache_dir.join(format!("{}/PKGBUILD", package));
 
         if !pkgbuild_path.exists() {
-            return Err(anyhow::anyhow!("PKGBUILD not found for package: {}", package));
+            return Err(anyhow::anyhow!(
+                "PKGBUILD not found for package: {}",
+                package
+            ));
         }
 
         let editor = std::env::var("EDITOR").unwrap_or_else(|_| "nano".to_string());
@@ -375,9 +375,7 @@ impl EnhancedAurManager {
     }
 
     fn get_installed_version(&self, package: &str) -> Option<String> {
-        let output = Command::new("pacman")
-            .args(["-Qi", package])
-            .output();
+        let output = Command::new("pacman").args(["-Qi", package]).output();
 
         if let Ok(output) = output {
             if !output.status.success() {

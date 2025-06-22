@@ -100,13 +100,13 @@ impl PerformanceAnalyzer {
         tokio::spawn(async move {
             let _max_cpu = 0.0f32;
             let _max_memory = 0u64;
-            
+
             // Simple monitoring loop - in production would use proper system monitoring
             for _i in 0..10 {
                 tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
                 // Get system stats here if needed
             }
-            
+
             // Update metrics with resource usage would happen here
             println!("[analytics] Monitoring completed for {}", build_id_clone);
         });

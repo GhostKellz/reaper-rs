@@ -9,7 +9,7 @@
 ## Build from Source
 
 ```bash
-git clone https://github.com/ghostkellz/reaper.git
+git clone https://github.com/GhostKellz/reaper.git
 cd reaper
 cargo build --release
 ```

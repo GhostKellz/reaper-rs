@@ -387,7 +387,7 @@ pub async fn launch_tui() {
                     };
                     format!("{}{}", icon, title)
                 }))
-                .block(Block::default().borders(Borders::ALL).title("Reaper v0.5"))
+                .block(Block::default().borders(Borders::ALL).title("Reaper v0.6"))
                 .select(tab_idx)
                 .highlight_style(
                     Style::default()

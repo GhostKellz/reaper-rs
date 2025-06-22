@@ -74,7 +74,7 @@
 
 ### Quick Install
 ```bash
-curl -sSL https://raw.githubusercontent.com/face-hh/reaper/main/release/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/GhostKellz/reaper/main/release/install.sh | bash
 ```
 
 ### Manual Install
@@ -86,7 +86,7 @@ sudo cp reap /usr/local/bin/
 
 ### Build from Source
 ```bash
-git clone https://github.com/face-hh/reaper.git
+git clone https://github.com/GhostKellz/reaper.git
 cd reaper
 cargo build --release --features cache
 ```

@@ -1,9 +1,9 @@
 // Core feature tests for Reap v0.3.0-rc
 use anyhow::{Context, Result};
-use reap::config::{GlobalConfig, ReapConfig};
+use reap::config::GlobalConfig;
 use reap::utils;
+use reap::flatpak::install_flatpak;
 use std::fs;
-use std::path::PathBuf;
 
 /// Test configuration precedence by simulating a config file and checking the precedence of settings.
 #[test]
@@ -59,8 +59,7 @@ fn test_hook_invocation() -> Result<()> {
 /// Test Flatpak installation failure by attempting to install a non-existent Flatpak package.
 #[tokio::test]
 async fn test_flatpak_install_failure() -> Result<()> {
-    let log = reap::tui::LogPane::default();
-    let result = reap::core::install_flatpak("nonexistent.flatpak.app", &log).await;
+    let result = install_flatpak("nonexistent.flatpak.app").await;
     assert!(result.is_err());
     Ok(())
 }

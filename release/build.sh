@@ -255,7 +255,7 @@ release_notes() {
 
 ### Quick Install (Recommended)
 \`\`\`bash
-curl -sSL https://raw.githubusercontent.com/face-hh/reaper/main/release/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/GhostKellz/reaper/main/release/install.sh | bash
 \`\`\`
 
 ### Manual Install

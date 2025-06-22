@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand};
 #[derive(Parser, Debug)]
 #[command(
     name = "reap",
-    version = "0.4.0",
+    version = "0.6.0",
     about = "Reaper: Secure, unified Rust-powered meta package manager\n\nUSAGE EXAMPLES:\n  reap install <pkg> --fast\n  reap install <pkg> --strict\n  reap install <pkg> --insecure\n  reap tap add mytap https://github.com/me/mytap.git\n  reap doctor --fix\n\nConfig precedence: CLI flag > ~/.config/reap/reap.toml > default\nSee README.md for more.",
     long_about = None
 )]
@@ -83,6 +83,12 @@ pub enum Commands {
         #[arg(long)]
         diff: bool,
     },
+    /// Install multiple packages in parallel
+    BatchInstall { 
+        pkgs: Vec<String>,
+        #[arg(long)]
+        parallel: bool,
+    },
     /// Remove one or more packages
     Remove { pkgs: Vec<String> },
     /// Install local packages
@@ -91,6 +97,8 @@ pub enum Commands {
     Search { terms: Vec<String> },
     /// Upgrade all packages
     Upgrade { parallel: bool },
+    /// Parallel upgrade specific packages
+    ParallelUpgrade { pkgs: Vec<String> },
     /// Upgrade all packages
     UpgradeAll,
     /// Upgrade Flatpak packages
@@ -109,6 +117,16 @@ pub enum Commands {
     Clean,
     /// Run system doctor
     Doctor,
+    /// Performance and caching operations
+    Perf {
+        #[command(subcommand)]
+        cmd: PerfCmd,
+    },
+    /// Security operations
+    Security {
+        #[command(subcommand)]
+        cmd: SecurityCmd,
+    },
     /// GPG key refresh
     Gpg {
         #[command(subcommand)]
@@ -271,4 +289,30 @@ pub enum AurCmd {
         #[arg(long, help = "Check for conflicts")]
         conflicts: bool,
     },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum PerfCmd {
+    /// Warm cache with popular packages
+    WarmCache,
+    /// Parallel search test
+    ParallelSearch { queries: Vec<String> },
+    /// Parallel PKGBUILD fetch
+    ParallelFetch { packages: Vec<String> },
+    /// Show cache statistics
+    CacheStats,
+    /// Clear all caches
+    ClearCache,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum SecurityCmd {
+    /// Audit PKGBUILD for security issues
+    Audit { pkg: String },
+    /// Scan all installed packages for security
+    ScanAll,
+    /// Show security statistics
+    Stats,
+    /// Update security rules
+    UpdateRules,
 }

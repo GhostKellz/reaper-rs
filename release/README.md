@@ -13,7 +13,7 @@ Complete release package for the Reaper AUR helper with trust engine, profiles, 
 
 ### 🔥 Quick Install (Recommended)
 ```bash
-curl -sSL https://raw.githubusercontent.com/face-hh/reaper/main/release/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/GhostKellz/reaper/main/release/install.sh | bash
 ```
 
 ### 📦 Manual Install
@@ -24,7 +24,7 @@ curl -sSL https://raw.githubusercontent.com/face-hh/reaper/main/release/install.
 
 ### 🏗️ Build from Source
 ```bash
-git clone https://github.com/face-hh/reaper.git
+git clone https://github.com/GhostKellz/reaper.git
 cd reaper
 cargo build --release --features cache
 sudo cp target/release/reap /usr/local/bin/

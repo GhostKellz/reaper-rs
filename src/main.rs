@@ -168,24 +168,29 @@ async fn main() {
             binary_only: _,
             diff,
         } => {
+            let config = std::sync::Arc::new(config::ReapConfig::load());
+            let log = std::sync::Arc::new(tui::LogPane::default());
+            
             if diff {
                 // Show PKGBUILD diff before install
-                let mut aur_manager = enhanced_aur::EnhancedAurManager::new();
-                if let Ok(pkgbuild) = aur_manager.fetch_pkgbuild(&pkg).await {
-                    let interactive = interactive::InteractiveManager::new();
-                    interactive.show_interactive_diff(&pkg, "", &format!("{:?}", pkgbuild));
-
-                    if !interactive::InteractiveManager::confirm_action(
-                        "Continue with installation?",
-                        true,
-                    ) {
-                        return;
-                    }
+                core::show_pkgbuild_diff(&pkg);
+                
+                if !interactive::InteractiveManager::confirm_action(
+                    "Continue with installation?",
+                    true,
+                ) {
+                    return;
                 }
             }
 
-            // Trigger installation through core
-            core::handle_install(vec![pkg.clone()]);
+            // Backup package state before install
+            if let Err(e) = core::backup_package_state(&pkg) {
+                eprintln!("[backup] Warning: Failed to backup package state: {}", e);
+            }
+
+            // Use priority-based install
+            let options = core::InstallOptions::default();
+            core::install_with_priority(&pkg, config, true, log, &options).await;
         }
 
         Commands::Rate {
@@ -242,6 +247,21 @@ async fn main() {
                 }
             }
         }
+        Commands::BatchInstall { pkgs, parallel } => {
+            let config = std::sync::Arc::new(config::ReapConfig::load());
+            let log = std::sync::Arc::new(tui::LogPane::default());
+            
+            if parallel {
+                log.push(&format!("[batch] Installing {} packages in parallel", pkgs.len()));
+                core::parallel_install(&pkgs, config, log).await;
+            } else {
+                for pkg in pkgs {
+                    log.push(&format!("[batch] Installing {}", pkg));
+                    let options = core::InstallOptions::default();
+                    core::install_with_priority(&pkg, config.clone(), true, log.clone(), &options).await;
+                }
+            }
+        }
         Commands::Remove { pkgs } => {
             let interactive = interactive::InteractiveManager::new();
             if interactive.confirm_removal(&pkgs) {
@@ -256,6 +276,13 @@ async fn main() {
         }
         Commands::Upgrade { parallel } => {
             core::handle_upgrade(parallel);
+        }
+        Commands::ParallelUpgrade { pkgs } => {
+            let config = std::sync::Arc::new(config::ReapConfig::load());
+            let log = std::sync::Arc::new(tui::LogPane::default());
+            
+            log.push(&format!("[parallel] Upgrading {} packages in parallel", pkgs.len()));
+            core::parallel_upgrade(&pkgs, config, log).await;
         }
         Commands::UpgradeAll => {
             core::handle_upgrade_all();
@@ -273,6 +300,105 @@ async fn main() {
         }
         Commands::Doctor => {
             core::handle_doctor();
+        }
+        Commands::Perf { cmd } => match cmd {
+            cli::PerfCmd::WarmCache => {
+                println!("[perf] Warming cache with popular packages...");
+                tokio::spawn(async {
+                    if let Err(e) = aur::warm_cache().await {
+                        eprintln!("[perf] Cache warming failed: {}", e);
+                    }
+                });
+            }
+            cli::PerfCmd::ParallelSearch { queries } => {
+                println!("[perf] Running parallel search for {} queries", queries.len());
+                tokio::spawn(async move {
+                    match aur::parallel_search(&queries).await {
+                        Ok(results) => println!("[perf] Found {} total results", results.len()),
+                        Err(e) => eprintln!("[perf] Parallel search failed: {}", e),
+                    }
+                });
+            }
+            cli::PerfCmd::ParallelFetch { packages } => {
+                println!("[perf] Running parallel PKGBUILD fetch for {} packages", packages.len());
+                tokio::spawn(async move {
+                    match aur::parallel_pkgbuild_fetch(&packages).await {
+                        Ok(downloads) => println!("[perf] Successfully downloaded {} PKGBUILDs", downloads.len()),
+                        Err(e) => eprintln!("[perf] Parallel fetch failed: {}", e),
+                    }
+                });
+            }
+            cli::PerfCmd::CacheStats => {
+                println!("[perf] Cache statistics:");
+                #[cfg(feature = "cache")]
+                {
+                    println!("  Cache directory: {:?}", *utils::cache::PKGBUILD_CACHE_DIR);
+                    if let Ok(entries) = std::fs::read_dir(&*utils::cache::PKGBUILD_CACHE_DIR) {
+                        let count = entries.count();
+                        println!("  Cached PKGBUILDs: {}", count);
+                    }
+                }
+                #[cfg(not(feature = "cache"))]
+                println!("  Caching disabled (compile with --features cache)");
+            }
+            cli::PerfCmd::ClearCache => {
+                match utils::clean_cache() {
+                    Ok(msg) => println!("[perf] {}", msg),
+                    Err(e) => eprintln!("[perf] Cache clear error: {}", e),
+                }
+            }
+        }
+        Commands::Security { cmd } => match cmd {
+            cli::SecurityCmd::Audit { pkg } => {
+                println!("[security] Auditing package: {}", pkg);
+                let pkgbuild = aur::get_pkgbuild_preview(&pkg);
+                let (warnings, risk_score) = utils::audit_pkgbuild(&pkgbuild);
+                
+                if warnings.is_empty() {
+                    println!("✅ Package {} passed security audit", pkg);
+                } else {
+                    println!("⚠️ Package {} security audit findings:", pkg);
+                    for warning in warnings {
+                        println!("  {}", warning);
+                    }
+                }
+                println!("🛡️ Security risk score: {}", risk_score);
+            }
+            cli::SecurityCmd::ScanAll => {
+                println!("[security] Scanning all installed packages...");
+                let installed = core::get_installed_packages();
+                let mut total_risk = 0;
+                let mut risky_packages = Vec::new();
+                
+                for (pkg, source) in installed {
+                    if matches!(source, core::Source::Aur) {
+                        let pkgbuild = aur::get_pkgbuild_preview(&pkg);
+                        let (warnings, risk_score) = utils::audit_pkgbuild(&pkgbuild);
+                        
+                        if risk_score > 15 {
+                            risky_packages.push((pkg, risk_score, warnings.len()));
+                        }
+                        total_risk += risk_score;
+                    }
+                }
+                
+                println!("🛡️ Security scan complete:");
+                println!("  Total risk score: {}", total_risk);
+                println!("  High-risk packages: {}", risky_packages.len());
+                
+                for (pkg, score, warning_count) in risky_packages {
+                    println!("    {} (score: {}, {} warnings)", pkg, score, warning_count);
+                }
+            }
+            cli::SecurityCmd::Stats => {
+                println!("[security] Security statistics:");
+                println!("  Security rules: 38 patterns");
+                println!("  Domain blacklist: 7 entries");
+                println!("  Credential patterns: 10 patterns");
+            }
+            cli::SecurityCmd::UpdateRules => {
+                println!("[security] Security rules are built-in and updated with releases");
+            }
         }
         Commands::Gpg { cmd } => match cmd {
             cli::GpgCmd::Refresh => {

@@ -1,10 +1,10 @@
 #!/bin/bash
-# Reaper v0.5.0 Installation Script
-# Usage: curl -sSL https://raw.githubusercontent.com/face-hh/reaper/main/release/install.sh | bash
+# Reaper v0.6.0 Installation Script
+# Usage: curl -sSL https://raw.githubusercontent.com/GhostKellz/reaper/main/release/install.sh | bash
 
 set -e
 
-REPO_URL="https://github.com/face-hh/reaper"
+REPO_URL="https://github.com/GhostKellz/reaper"
 RELEASE_URL="$REPO_URL/releases/latest/download"
 INSTALL_DIR="/usr/local/bin"
 CONFIG_DIR="$HOME/.config/reap"
@@ -256,7 +256,7 @@ verify_installation() {
 
 # Main installation flow
 main() {
-    echo "🔥 Reaper v0.5.0 Installer"
+    echo "🔥 Reaper v0.6.0 Installer"
     echo "=========================="
     
     check_arch
@@ -277,7 +277,7 @@ main() {
     echo "  4. Run 'reap doctor' to verify system health"
     echo "  5. Run 'reap tui' for the interactive interface"
     echo ""
-    info "Documentation: https://github.com/face-hh/reaper"
+    info "Documentation: https://github.com/GhostKellz/reaper"
     info "Configuration: $CONFIG_DIR/reap.toml"
     echo ""
 }

@@ -1,8 +1,9 @@
-name: CI
+name: CI/CD
 
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
     branches: [main]
 
@@ -31,7 +32,71 @@ jobs:
         run: |
           cargo build --release --features cache
           cargo build --release --features "cache flatpak"
-      # TODO: Add cross-platform build for aarch64/musl if needed
 
       - name: Test
         run: cargo test --verbose
+
+  release:
+    runs-on: self-hosted
+    name: Release on nv-palladium
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Build release binary
+        run: |
+          cargo build --release --all-features
+          strip target/release/reap
+
+      - name: Create release artifacts
+        run: |
+          mkdir -p release-artifacts
+          cp target/release/reap release-artifacts/reap-x86_64
+          chmod +x release-artifacts/reap-x86_64
+          
+          # Create archive
+          tar -czf release-artifacts/reaper-${{ github.ref_name }}-x86_64-linux-gnu.tar.gz -C target/release reap
+          
+          # Copy additional files
+          cp release/install.sh release-artifacts/
+          cp release/PKGBUILD release-artifacts/
+          cp README.md release-artifacts/
+          cp CHANGELOG.md release-artifacts/
+
+      - name: Generate release notes
+        run: |
+          echo "# Reaper ${{ github.ref_name }}" > release-artifacts/RELEASE_NOTES.md
+          echo "" >> release-artifacts/RELEASE_NOTES.md
+          echo "## What's New" >> release-artifacts/RELEASE_NOTES.md
+          echo "" >> release-artifacts/RELEASE_NOTES.md
+          echo "See [CHANGELOG.md](./CHANGELOG.md) for detailed changes." >> release-artifacts/RELEASE_NOTES.md
+          echo "" >> release-artifacts/RELEASE_NOTES.md
+          echo "## Quick Install" >> release-artifacts/RELEASE_NOTES.md
+          echo "" >> release-artifacts/RELEASE_NOTES.md
+          echo '```bash' >> release-artifacts/RELEASE_NOTES.md
+          echo 'curl -sSL https://raw.githubusercontent.com/GhostKellz/reaper/main/release/install.sh | bash' >> release-artifacts/RELEASE_NOTES.md
+          echo '```' >> release-artifacts/RELEASE_NOTES.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            release-artifacts/reap-x86_64
+            release-artifacts/reaper-${{ github.ref_name }}-x86_64-linux-gnu.tar.gz
+            release-artifacts/install.sh
+            release-artifacts/PKGBUILD
+            release-artifacts/README.md
+            release-artifacts/CHANGELOG.md
+          body_path: release-artifacts/RELEASE_NOTES.md
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

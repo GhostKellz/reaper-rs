@@ -5,61 +5,27 @@ use std::os::unix::process::ExitStatusExt;
 use toml::Value;
 
 #[cfg(feature = "cache")]
-use once_cell::sync::Lazy;
-
-#[cfg(feature = "cache")]
-use serde_json;
-#[cfg(feature = "cache")]
-use std::fs::{self, create_dir_all, read_to_string, write};
-
-#[cfg(feature = "cache")]
-static PKGBUILD_CACHE: Lazy<std::sync::Mutex<std::collections::HashMap<String, String>>> =
-    Lazy::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
-
-#[cfg(feature = "cache")]
-static SEARCH_CACHE: Lazy<
-    std::sync::Mutex<std::collections::HashMap<String, Vec<crate::aur::SearchResult>>>,
-> = Lazy::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
-
-#[cfg(feature = "cache")]
-static PKGBUILD_CACHE_DIR: Lazy<std::path::PathBuf> = Lazy::new(|| {
-    dirs::cache_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
-        .join("reap/pkgbuilds")
-});
-#[cfg(feature = "cache")]
-static SEARCH_CACHE_DIR: Lazy<std::path::PathBuf> = Lazy::new(|| {
-    dirs::cache_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
-        .join("reap/search")
-});
+use crate::aur::SearchResult;
 
 /// Caches and returns AUR search results for a query
 #[cfg(feature = "cache")]
 pub fn get_cached_search(query: &str) -> Option<Vec<SearchResult>> {
-    let path = SEARCH_CACHE_DIR.join(format!("{}.json", query));
-    if let Ok(data) = read_to_string(&path) {
-        serde_json::from_str(&data).ok()
-    } else {
-        None
-    }
+    cache::load_search(query)
 }
 
 #[cfg(feature = "cache")]
 pub fn cache_search_result(query: &str, results: &[SearchResult]) {
-    let path = SEARCH_CACHE_DIR.join(format!("{}.json", query));
-    if let Ok(json) = serde_json::to_string(results) {
-        let _ = create_dir_all(SEARCH_CACHE_DIR.as_path());
-        let _ = write(path, json);
-    }
+    cache::save_search(query, results);
 }
 
 #[cfg(feature = "cache")]
 pub async fn async_get_pkgbuild_cached(pkg: &str) -> String {
-    let path = PKGBUILD_CACHE_DIR.join(format!("{}.PKGBUILD", pkg));
-    if let Ok(data) = read_to_string(&path) {
-        return data;
+    // Try to load from file cache first
+    if let Some(cached) = cache::load_pkgbuild(pkg) {
+        return cached;
     }
+    
+    // If not cached, fetch from AUR
     let pkgb_preview = crate::aur::get_pkgbuild_preview(pkg);
     println!("[utils] PKGBUILD preview for {}:\n{}", pkg, pkgb_preview);
     for line in pkgb_preview.lines() {
@@ -70,15 +36,16 @@ pub async fn async_get_pkgbuild_cached(pkg: &str) -> String {
     if pkgb_preview.contains("pkgname") {
         println!("[utils] PKGBUILD for {} contains a pkgname field.", pkg);
     }
-    let _ = create_dir_all(PKGBUILD_CACHE_DIR.as_path());
-    let _ = write(&path, &_pkgb);
-    _pkgb
+    
+    // Save to cache
+    cache::save_pkgbuild(pkg, &pkgb_preview);
+    pkgb_preview
 }
 
 #[cfg(feature = "cache")]
 pub fn ensure_cache_dirs() {
-    let _ = create_dir_all(PKGBUILD_CACHE_DIR.as_path());
-    let _ = create_dir_all(SEARCH_CACHE_DIR.as_path());
+    let _ = std::fs::create_dir_all(&*cache::PKGBUILD_CACHE_DIR);
+    let _ = std::fs::create_dir_all(&*cache::SEARCH_CACHE_DIR);
 }
 
 /// Audit a package by checking its source and dependencies
@@ -337,6 +304,12 @@ pub fn pinned_version(pkg: &str) -> Option<String> {
 
 /// Clean the cache directories used by reap
 pub fn clean_cache() -> Result<String, String> {
+    #[cfg(feature = "cache")]
+    {
+        ensure_cache_dirs(); // Ensure cache dirs exist before cleaning
+        cache::expire_cache();
+    }
+    
     let home = dirs::home_dir().unwrap_or_default();
     let cache_dirs = vec![
         "/tmp/reap".to_string(),
@@ -483,25 +456,26 @@ pub mod cache {
     use std::path::PathBuf;
     use std::time::{Duration, SystemTime};
 
-    static PKGBUILD_CACHE_DIR: Lazy<PathBuf> = Lazy::new(|| {
+    pub static PKGBUILD_CACHE_DIR: Lazy<PathBuf> = Lazy::new(|| {
         dirs::cache_dir()
             .unwrap_or_else(|| PathBuf::from("/tmp"))
             .join("reap/pkgbuilds")
     });
-    static SEARCH_CACHE_DIR: Lazy<PathBuf> = Lazy::new(|| {
+    
+    pub static SEARCH_CACHE_DIR: Lazy<PathBuf> = Lazy::new(|| {
         dirs::cache_dir()
             .unwrap_or_else(|| PathBuf::from("/tmp"))
             .join("reap/search")
     });
 
     pub fn save_pkgbuild(pkg: &str, content: &str) {
-        let path = PKGBUILD_CACHE_DIR.join(pkg);
+        let path = PKGBUILD_CACHE_DIR.join(format!("{}.PKGBUILD", pkg));
         let _ = fs::create_dir_all(PKGBUILD_CACHE_DIR.as_path());
         let _ = fs::write(path, content);
     }
 
     pub fn load_pkgbuild(pkg: &str) -> Option<String> {
-        let path = PKGBUILD_CACHE_DIR.join(pkg);
+        let path = PKGBUILD_CACHE_DIR.join(format!("{}.PKGBUILD", pkg));
         if let Ok(meta) = fs::metadata(&path) {
             if let Ok(modified) = meta.modified() {
                 if SystemTime::now()
@@ -522,13 +496,13 @@ pub mod cache {
     }
 
     pub fn save_search(query: &str, results: &[SearchResult]) {
-        let path = SEARCH_CACHE_DIR.join(query);
+        let path = SEARCH_CACHE_DIR.join(format!("{}.json", query));
         let _ = fs::create_dir_all(SEARCH_CACHE_DIR.as_path());
         let _ = fs::write(path, serde_json::to_string(results).unwrap_or_default());
     }
 
     pub fn load_search(query: &str) -> Option<Vec<SearchResult>> {
-        let path = SEARCH_CACHE_DIR.join(query);
+        let path = SEARCH_CACHE_DIR.join(format!("{}.json", query));
         if let Ok(meta) = fs::metadata(&path) {
             if let Ok(modified) = meta.modified() {
                 if SystemTime::now()
@@ -548,41 +522,112 @@ pub mod cache {
 
 /// Audit a PKGBUILD for risky patterns
 #[allow(dead_code)]
-pub fn audit_pkgbuild(pkgbuild: &str) {
+pub fn audit_pkgbuild(pkgbuild: &str) -> (Vec<String>, i32) {
     let risky_patterns = [
-        "curl",
-        "wget",
-        "sudo",
-        "rm -rf",
-        "chmod",
-        "chown",
-        "dd",
-        "mkfs",
-        "mount",
-        "scp",
-        "nc",
-        "ncat",
-        "bash -c",
-        "eval",
-        "setcap",
-        "setuid",
-        "setgid",
-        "useradd",
-        "groupadd",
-        "passwd",
-        "iptables",
-        "firewalld",
-        "systemctl",
-        "service",
+        ("curl", 2),           // Network downloads
+        ("wget", 2),           // Network downloads  
+        ("sudo", 9),           // Privilege escalation
+        ("rm -rf", 8),         // Destructive operations
+        ("chmod 777", 7),      // Insecure permissions
+        ("chown", 5),          // Ownership changes
+        ("dd", 8),             // Low-level disk operations
+        ("mkfs", 9),           // Filesystem creation
+        ("mount", 7),          // Filesystem mounting
+        ("scp", 4),            // Network file transfer
+        ("nc", 6),             // Network connections
+        ("ncat", 6),           // Network connections
+        ("bash -c", 5),        // Dynamic code execution
+        ("eval", 7),           // Dynamic code execution
+        ("setcap", 6),         // Capability management
+        ("setuid", 8),         // SUID bit setting
+        ("setgid", 7),         // SGID bit setting
+        ("useradd", 6),        // User management
+        ("groupadd", 5),       // Group management
+        ("passwd", 7),         // Password changes
+        ("iptables", 6),       // Firewall rules
+        ("firewalld", 6),      // Firewall management
+        ("systemctl", 4),      // Service management
+        ("service", 4),        // Service management
+        ("pkexec", 8),         // Privilege escalation
+        ("gksu", 8),           // Privilege escalation
+        ("kdesu", 8),          // Privilege escalation
+        ("exec", 6),           // Code execution
+        ("system(", 7),        // System calls
+        ("os.system", 7),      // Python system calls
+        ("subprocess", 5),     // Process spawning
+        ("shell=True", 6),     // Shell execution
+        ("unsafeFunctionCall", 9), // Known unsafe patterns
+        ("download_file", 3),  // File downloads
+        ("git clone", 3),      // Source downloads
+        ("tar -x", 2),         // Archive extraction
+        ("unzip", 2),          // Archive extraction
     ];
-    for pat in risky_patterns.iter() {
-        if pkgbuild.contains(pat) {
-            println!(
-                "[AUDIT] Warning: PKGBUILD contains potentially risky pattern: {}",
-                pat
-            );
+    
+    let mut warnings = Vec::new();
+    let mut risk_score = 0;
+    
+    for (pattern, severity) in &risky_patterns {
+        if pkgbuild.contains(pattern) {
+            warnings.push(format!(
+                "⚠️ SECURITY: Found potentially risky pattern '{}' (severity: {})",
+                pattern, severity
+            ));
+            risk_score += severity;
         }
     }
+    
+    // Check for suspicious URLs
+    let suspicious_domains = [
+        "bit.ly", "tinyurl.com", "t.co", "goo.gl", // URL shorteners
+        "pastebin.com", "hastebin.com",            // Code paste sites
+        "tempfile.org", "0x0.st",                  // Temporary file hosts
+    ];
+    
+    for domain in &suspicious_domains {
+        if pkgbuild.contains(domain) {
+            warnings.push(format!("🚨 SECURITY: Suspicious domain detected: {}", domain));
+            risk_score += 5;
+        }
+    }
+    
+    // Check for hardcoded credentials
+    let credential_patterns = [
+        "password=", "passwd=", "api_key=", "apikey=", "secret=", "token=",
+        "auth=", "login=", "user=", "pass=",
+    ];
+    
+    for pattern in &credential_patterns {
+        if pkgbuild.to_lowercase().contains(pattern) {
+            warnings.push(format!("🔐 SECURITY: Potential hardcoded credential: {}", pattern));
+            risk_score += 6;
+        }
+    }
+    
+    // Check for network operations without verification
+    if pkgbuild.contains("curl") && !pkgbuild.contains("--verify") && !pkgbuild.contains("checksum") {
+        warnings.push("🌐 SECURITY: Network download without verification detected".to_string());
+        risk_score += 4;
+    }
+    
+    if warnings.is_empty() {
+        println!("✅ PKGBUILD security scan: No obvious security issues found");
+    } else {
+        println!("⚠️ PKGBUILD security scan found {} potential issues:", warnings.len());
+        for warning in &warnings {
+            println!("  {}", warning);
+        }
+    }
+    
+    let security_level = match risk_score {
+        0..=5 => "LOW",
+        6..=15 => "MEDIUM", 
+        16..=30 => "HIGH",
+        _ => "CRITICAL",
+    };
+    
+    println!("🛡️ Security Risk Score: {} ({})", risk_score, security_level);
+    
+    (warnings, risk_score)
 }
 
 pub fn rollback(pkg: &str) {
