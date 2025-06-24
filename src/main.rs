@@ -58,6 +58,65 @@ async fn main() {
     #[cfg(debug_assertions)]
     tokio::spawn(test_parallel_runners());
     let cli = Cli::parse();
+
+    // Handle pacman-style flags first (-Sy, -Syu, -S <pkg>, etc.)
+    if let Some(packages) = &cli.sync {
+        if cli.refresh && cli.upgrade {
+            // -Syu: refresh database and upgrade all
+            println!("🔄 Refreshing package database and upgrading all packages...");
+            core::handle_upgrade_all();
+            return;
+        } else if cli.refresh {
+            // -Sy: refresh database only
+            println!("🔄 Refreshing package database...");
+            core::handle_sync_db();
+            if !packages.is_empty() {
+                // -Sy <pkg>: refresh then install packages
+                for pkg in packages {
+                    let config = std::sync::Arc::new(config::ReapConfig::load());
+                    let log = std::sync::Arc::new(tui::LogPane::default());
+                    let options = core::InstallOptions::default();
+                    core::install_with_priority(pkg, config, true, log, &options).await;
+                }
+            }
+            return;
+        } else if cli.upgrade {
+            // -Su: upgrade packages
+            core::handle_upgrade_all();
+            return;
+        } else if !packages.is_empty() {
+            // -S <pkg>: install packages
+            for pkg in packages {
+                let config = std::sync::Arc::new(config::ReapConfig::load());
+                let log = std::sync::Arc::new(tui::LogPane::default());
+                let options = core::InstallOptions::default();
+                core::install_with_priority(pkg, config, true, log, &options).await;
+            }
+            return;
+        }
+    }
+
+    if let Some(packages) = &cli.remove {
+        // -R <pkg>: remove packages
+        let interactive = crate::interactive::InteractiveManager::new();
+        if interactive.confirm_removal(packages) {
+            core::handle_removal(packages);
+        }
+        return;
+    }
+
+    if let Some(terms) = &cli.search {
+        // -Q <term>: search packages
+        core::handle_search(terms);
+        return;
+    }
+
+    if let Some(paths) = &cli.local {
+        // -U <path>: install local packages
+        core::handle_local_install(paths);
+        return;
+    }
+
     // All install/upgrade flows use Reap's own async/parallel logic (no yay/paru fallback)
     if let Err(e) = core::handle_cli(&cli).await {
         eprintln!("[reap] CLI error: {e}");
@@ -277,6 +336,9 @@ async fn main() {
         }
         Commands::Search { terms } => {
             core::handle_search(&terms);
+        }
+        Commands::Update => {
+            core::handle_update();
         }
         Commands::Upgrade { parallel } => {
             core::handle_upgrade(parallel);

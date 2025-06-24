@@ -190,6 +190,13 @@ pub async fn install_with_priority(
 ) {
     use owo_colors::OwoColorize;
     let start = Instant::now();
+    
+    // Print colorized header
+    println!("\n{} Installing package: {}", 
+        "📦".bright_blue(), 
+        pkg.bright_white().bold()
+    );
+    
     let ctx = HookContext {
         pkg: pkg.to_string(),
         version: None,
@@ -197,12 +204,45 @@ pub async fn install_with_priority(
         install_path: None,
         tap: None,
     };
-    log.push(&format!("[reap][hook] pre_install executing for {}", pkg));
+    
+    println!("{} Running pre-install hooks...", "🔧".bright_cyan());
+    log.push(&format!("{} pre_install executing for {}", "🔧".to_string(), pkg));
     pre_install(&ctx);
+    
     let global_config = GlobalConfig::load();
     if let Some((source, tap_name, prio, tap_obj)) =
         resolve_package_source(pkg, None, &global_config)
     {
+        // Print source information with colors
+        match &source {
+            Source::Aur => println!("{} Source: {} (Priority: {})", 
+                "📍".bright_yellow(), 
+                "AUR".bright_magenta(), 
+                prio.to_string().bright_green()
+            ),
+            Source::Flatpak => println!("{} Source: {} (Priority: {})", 
+                "📍".bright_yellow(), 
+                "Flatpak".bright_blue(), 
+                prio.to_string().bright_green()
+            ),
+            Source::Pacman => println!("{} Source: {} (Priority: {})", 
+                "📍".bright_yellow(), 
+                "Pacman".bright_cyan(), 
+                prio.to_string().bright_green()
+            ),
+            Source::Custom(name) => println!("{} Source: {} {} (Priority: {})", 
+                "📍".bright_yellow(), 
+                "Tap".bright_purple(), 
+                name.bright_white(), 
+                prio.to_string().bright_green()
+            ),
+            _ => println!("{} Source: {} (Priority: {})", 
+                "📍".bright_yellow(), 
+                format!("{:?}", source).bright_white(), 
+                prio.to_string().bright_green()
+            ),
+        }
+        
         // Prepare hook context
         let ctx = HookContext {
             pkg: pkg.to_string(),
@@ -351,6 +391,7 @@ pub async fn install_with_priority(
                 log.push(&format!("[✓] Installed {} from Pacman", pkg));
             }
             Source::Aur => {
+                println!("{} Building {} from AUR source...", "🔨".bright_yellow(), pkg.bright_white());
                 log.push(&format!("[reap][aur] Installing {} from AUR", pkg));
                 let opts = InstallOptions {
                     insecure: false,
@@ -360,6 +401,7 @@ pub async fn install_with_priority(
                     max_parallel: 4,
                 };
                 let _ = install_aur_native(pkg, &log, &opts).await;
+                println!("{} Successfully installed {} from AUR!", "✅".bright_green(), pkg.bright_white().bold());
                 log.push(&format!("[✓] Installed {} from AUR", pkg));
             }
             Source::Flatpak => {
@@ -368,20 +410,30 @@ pub async fn install_with_priority(
             }
             _ => log.push(&format!("[!] Unknown source for {}", pkg)),
         }
+        println!("{} Running post-install hooks...", "🔧".bright_cyan());
         log.push(&format!("[reap][hook] post_install executing for {}", pkg));
         post_install(&ctx);
+        
+        let elapsed = start.elapsed();
+        println!("\n{} Installation completed in {:.2}s", 
+            "⏱️".bright_blue(), 
+            elapsed.as_secs_f64().to_string().bright_green()
+        );
+        log.push(&format!(
+            "[reap][timing] install_with_priority for {} took: {:?}",
+            pkg, elapsed
+        ));
     } else {
+        println!("{} Could not resolve source for {}", 
+            "❌".bright_red(), 
+            pkg.bright_white()
+        );
         log.push(&format!(
             "[reap][error] Could not resolve source for {}",
             pkg
         ));
         crate::utils::rollback(pkg);
     }
-    let elapsed = start.elapsed();
-    log.push(&format!(
-        "[reap][timing] install_with_priority for {} took: {:?}",
-        pkg, elapsed
-    ));
     // Backup before install
     if let Ok(backup_path) = backup_package_state(pkg) {
         log.push(&format!(
@@ -590,11 +642,72 @@ pub fn handle_search(terms: &[String]) {
     }
 }
 
+pub fn handle_update() {
+    use owo_colors::OwoColorize;
+    println!("{} Checking for package updates...", "🔍".bright_blue());
+    
+    let config = crate::config::ReapConfig::load();
+    let installed = crate::pacman::list_installed_aur();
+    let mut updates_available: Vec<(String, String, String)> = Vec::new();
+    
+    println!("{} Scanning {} AUR packages...", "📦".bright_cyan(), installed.len());
+    
+    for pkg in installed {
+        if config.is_ignored(&pkg) {
+            println!("{} Skipping ignored package: {}", "⏭️".yellow(), pkg.dimmed());
+            continue;
+        }
+        
+        if let Ok(remote) = crate::aur::fetch_package_info(&pkg) {
+            let local_ver = crate::pacman::get_version(&pkg);
+            if let Some(local) = local_ver {
+                if local != remote.version {
+                    updates_available.push((pkg.clone(), local, remote.version));
+                }
+            }
+        }
+    }
+    
+    if updates_available.is_empty() {
+        println!("{} All AUR packages are up to date!", "✅".bright_green());
+    } else {
+        println!("\n{} {} package(s) can be updated:", "📋".bright_yellow(), updates_available.len().to_string().bright_white());
+        for (pkg, local_ver, remote_ver) in &updates_available {
+            println!("  {} {} → {}", 
+                pkg.bright_white(), 
+                local_ver.red(), 
+                remote_ver.bright_green()
+            );
+        }
+        println!("\n{} Run {} to upgrade all packages", 
+            "💡".bright_blue(), 
+            "reap -Syu".bright_cyan()
+        );
+    }
+}
+
+pub fn handle_sync_db() {
+    use owo_colors::OwoColorize;
+    println!("{} Synchronizing package databases...", "🔄".bright_blue());
+    
+    let status = std::process::Command::new("sudo")
+        .arg("pacman")
+        .arg("-Sy")
+        .status();
+    
+    match status {
+        Ok(s) if s.success() => println!("{} Database sync completed", "✅".bright_green()),
+        Ok(_) => eprintln!("{} Failed to sync database", "❌".bright_red()),
+        Err(e) => eprintln!("{} Error syncing database: {}", "❌".bright_red(), e),
+    }
+}
+
 pub fn handle_upgrade_all() {
-    println!("[reap] Upgrading all packages...");
+    use owo_colors::OwoColorize;
+    println!("{} Upgrading all packages...", "🚀".bright_blue());
     let rt = tokio::runtime::Runtime::new().unwrap();
     if let Err(e) = rt.block_on(aur::upgrade_all()) {
-        eprintln!("[reap] Upgrade all failed: {}", e);
+        eprintln!("{} Upgrade all failed: {}", "❌".bright_red(), e);
     }
 }
 
@@ -745,8 +858,19 @@ pub async fn install_aur_native(
     let build_dir = cache_dir.join(format!("reap-aur-{}-{}", pkg, now));
     let repo_url = format!("https://aur.archlinux.org/{}.git", pkg);
     let log_line = |step: &str, msg: &str| {
+        use owo_colors::OwoColorize;
         let entry = format!("[{}][reap][aur][{}] {}", now, step, msg);
         log.push(&entry);
+        // Also print colorized output to console
+        match step {
+            "fetch" => println!("{} {}", "📥".bright_blue(), msg.bright_white()),
+            "build" => println!("{} {}", "🔨".bright_yellow(), msg.bright_white()),
+            "install" => println!("{} {}", "📦".bright_green(), msg.bright_white()),
+            "deps" => println!("{} {}", "🔗".bright_cyan(), msg.bright_white()),
+            "error" => println!("{} {}", "❌".bright_red(), msg.bright_red()),
+            "success" => println!("{} {}", "✅".bright_green(), msg.bright_green()),
+            _ => println!("{} {}", "ℹ️".bright_blue(), msg.bright_white()),
+        }
     };
     // --- Fetch PKGBUILD ---
     log_line("fetch", &format!("Fetching PKGBUILD for {}", pkg));
@@ -1236,6 +1360,7 @@ pub async fn install_with_priority_enhanced(
                 log.push(&format!("[✓] Installed {} from Pacman", pkg));
             }
             Source::Aur => {
+                println!("{} Building {} from AUR source...", "🔨".bright_yellow(), pkg.bright_white());
                 log.push(&format!("[reap][aur] Installing {} from AUR", pkg));
                 let opts = InstallOptions {
                     insecure: false,
@@ -1245,6 +1370,7 @@ pub async fn install_with_priority_enhanced(
                     max_parallel: 4,
                 };
                 let _ = install_aur_native(pkg, &log, &opts).await;
+                println!("{} Successfully installed {} from AUR!", "✅".bright_green(), pkg.bright_white().bold());
                 log.push(&format!("[✓] Installed {} from AUR", pkg));
             }
             Source::Flatpak => {

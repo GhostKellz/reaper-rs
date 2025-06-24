@@ -10,7 +10,7 @@ use clap::{Parser, Subcommand};
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
-    #[arg(short = 'S', long = "sync", value_name = "PKG", num_args = 0.., conflicts_with_all = ["remove", "search", "upgrade", "local"])]
+    #[arg(short = 'S', long = "sync", value_name = "PKG", num_args = 0.., conflicts_with_all = ["remove", "search", "local"])]
     pub sync: Option<Vec<String>>,
     #[arg(short = 'R', long = "remove", value_name = "PKG", num_args = 0.., conflicts_with_all = ["sync", "search", "upgrade", "local"], help = "Remove a package")]
     pub remove: Option<Vec<String>>,
@@ -18,9 +18,9 @@ pub struct Cli {
     pub local: Option<Vec<String>>,
     #[arg(short = 'Q', long = "search", value_name = "TERM", num_args = 0.., conflicts_with_all = ["sync", "remove", "upgrade", "local"], help = "Search for a package")]
     pub search: Option<Vec<String>>,
-    #[arg(short = 'y', long = "refresh", conflicts_with = "upgrade")]
+    #[arg(short = 'y', long = "refresh", help = "Refresh package database")]
     pub refresh: bool,
-    #[arg(short = 'u', long = "upgrade", conflicts_with = "refresh")]
+    #[arg(short = 'u', long = "upgrade", help = "Upgrade packages")]
     pub upgrade: bool,
     #[arg(long = "syncdb", help = "Sync package database")]
     pub syncdb: bool,
@@ -95,6 +95,8 @@ pub enum Commands {
     Local { pkgs: Vec<String> },
     /// Search for packages
     Search { terms: Vec<String> },
+    /// Check for package updates
+    Update,
     /// Upgrade all packages
     Upgrade { parallel: bool },
     /// Parallel upgrade specific packages
