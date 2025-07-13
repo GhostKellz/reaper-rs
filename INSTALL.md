@@ -42,7 +42,7 @@ reap --help
 ```
 
 - All install/upgrade logic is now async/parallel and does not use yay/paru fallback.
-- See README.md and COMMANDS.md for the latest CLI options and features.
+- See README.md and COMMANDS.md for the latest CLI options and features. testing.
 
 ## Binary Releases
 
